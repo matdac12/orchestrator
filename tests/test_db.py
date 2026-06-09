@@ -155,5 +155,40 @@ class PostTest(unittest.TestCase):
             db.post_event(self.conn, "demo", "B", status="done")
 
 
+class StateTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+
+    def test_get_state_shape(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X")
+        db.post_event(self.conn, "demo", "B", status="in_progress",
+                     message="starting")
+        state = db.get_state(self.conn, "demo")
+        self.assertEqual(state["project"]["name"], "demo")
+        self.assertEqual(len(state["tasks"]), 1)
+        self.assertEqual(len(state["events"]), 1)
+        agents = {a["agent"]: a for a in state["agents"]}
+        self.assertIn("B", agents)
+        self.assertEqual(agents["B"]["status"], "in_progress")
+        self.assertEqual(agents["B"]["current_task"]["id"], tid)
+        self.assertEqual(agents["B"]["last_event"]["message"], "starting")
+
+    def test_get_state_idle_agent_when_all_tasks_closed(self):
+        db.add_task(self.conn, "demo", "B", "build X")
+        db.post_event(self.conn, "demo", "B", status="merged")
+        agents = {a["agent"]: a
+                  for a in db.get_state(self.conn, "demo")["agents"]}
+        self.assertEqual(agents["B"]["status"], "merged")
+
+    def test_get_state_events_limit(self):
+        for i in range(10):
+            db.post_event(self.conn, "demo", "B", message=f"e{i}")
+        state = db.get_state(self.conn, "demo", events_limit=3)
+        self.assertEqual(len(state["events"]), 3)
+        self.assertEqual(state["events"][0]["message"], "e9")
+
+
 if __name__ == "__main__":
     unittest.main()

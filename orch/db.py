@@ -199,6 +199,44 @@ def post_event(conn, project, agent, kind="status", message="",
     return with_retry(_do)
 
 
+def _row_to_dict(row):
+    return dict(row) if row is not None else None
+
+
+def get_state(conn, project, events_limit=50):
+    proj = require_project(conn, project)
+    pid = proj["id"]
+
+    tasks = [dict(r) for r in conn.execute(
+        "SELECT * FROM tasks WHERE project_id = ? ORDER BY updated_at DESC",
+        (pid,))]
+    events = [dict(r) for r in conn.execute(
+        "SELECT * FROM events WHERE project_id = ? "
+        "ORDER BY id DESC LIMIT ?", (pid, events_limit))]
+
+    agents = []
+    for agent in sorted({t["agent"] for t in tasks}
+                        | {e["agent"] for e in events}):
+        agent_tasks = [t for t in tasks if t["agent"] == agent]
+        active = [t for t in agent_tasks if t["status"] in ACTIVE_STATUSES]
+        current = active[0] if active else (
+            agent_tasks[0] if agent_tasks else None)
+        last_event = next((e for e in events if e["agent"] == agent), None)
+        agents.append({
+            "agent": agent,
+            "status": current["status"] if current else "idle",
+            "current_task": current,
+            "last_event": last_event,
+        })
+
+    return {
+        "project": dict(proj),
+        "agents": agents,
+        "tasks": tasks,
+        "events": events,
+    }
+
+
 def connect(db_path=None):
     path = db_path or default_db_path()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
