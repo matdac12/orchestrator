@@ -1,0 +1,76 @@
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def run(args, db_path):
+    env = dict(os.environ, ORCH_DB=db_path)
+    return subprocess.run(
+        [sys.executable, os.path.join(ROOT, "orch.py"), *args],
+        capture_output=True, text=True, env=env)
+
+
+class CLITest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.db = os.path.join(self.tmp, "state.db")
+
+    def test_init_then_status_json(self):
+        self.assertEqual(run(["init", "demo"], self.db).returncode, 0)
+        out = run(["status", "--project", "demo", "--json"], self.db)
+        self.assertEqual(out.returncode, 0)
+        state = json.loads(out.stdout)
+        self.assertEqual(state["project"]["name"], "demo")
+
+    def test_task_add_prints_id_and_status_shows_it(self):
+        run(["init", "demo"], self.db)
+        add = run(["task", "add", "--project", "demo", "--agent", "B",
+                   "--title", "build X", "--issue", "LIN-1"], self.db)
+        self.assertEqual(add.returncode, 0)
+        tid = int(add.stdout.strip().split()[-1])
+        upd = run(["task", "update", "--project", "demo", "--task", str(tid),
+                   "--status", "merged"], self.db)
+        self.assertEqual(upd.returncode, 0)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["status"], "merged")
+
+    def test_status_unknown_project_errors(self):
+        out = run(["status", "--project", "nope", "--json"], self.db)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("not found", out.stderr.lower())
+
+    def test_log_outputs_events(self):
+        run(["init", "demo"], self.db)
+        run(["task", "add", "--project", "demo", "--agent", "B",
+             "--title", "X"], self.db)
+        run(["post", "--project", "demo", "--agent", "B",
+             "--msg", "hello"], self.db)
+        out = run(["log", "--project", "demo"], self.db)
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("hello", out.stdout)
+
+    def test_post_status_updates_task(self):
+        run(["init", "demo"], self.db)
+        add = run(["task", "add", "--project", "demo", "--agent", "B",
+                   "--title", "X"], self.db)
+        tid = int(add.stdout.strip().split()[-1])
+        out = run(["post", "--project", "demo", "--agent", "B",
+                   "--status", "done", "--branch", "feat/x",
+                   "--msg", "ready"], self.db)
+        self.assertEqual(out.returncode, 0)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["status"], "done")
+        self.assertEqual(state["tasks"][0]["branch"], "feat/x")
+        self.assertEqual(state["agents"][0]["agent"], "B")
+        _ = tid
+
+
+if __name__ == "__main__":
+    unittest.main()
