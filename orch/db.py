@@ -96,6 +96,51 @@ def require_project(conn, name):
     return row
 
 
+def add_task(conn, project, agent, title,
+             issue_ref=None, branch=None, worktree=None):
+    pid = require_project(conn, project)["id"]
+    ts = now()
+
+    def _do():
+        cur = conn.execute(
+            "INSERT INTO tasks (project_id, agent, title, status, issue_ref, "
+            "branch, worktree, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'todo', ?, ?, ?, ?, ?)",
+            (pid, agent, title, issue_ref, branch, worktree, ts, ts),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+    return with_retry(_do)
+
+
+def update_task(conn, task_id, status=None, branch=None, issue_ref=None):
+    if status is not None and status not in TASK_STATUSES:
+        raise ValueError(
+            f"invalid status '{status}', expected one of {TASK_STATUSES}")
+    row = conn.execute(
+        "SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if row is None:
+        raise NotFound(f"task {task_id} not found")
+
+    sets, params = [], []
+    if status is not None:
+        sets.append("status = ?"); params.append(status)
+    if branch is not None:
+        sets.append("branch = ?"); params.append(branch)
+    if issue_ref is not None:
+        sets.append("issue_ref = ?"); params.append(issue_ref)
+    sets.append("updated_at = ?"); params.append(now())
+    params.append(task_id)
+
+    def _do():
+        conn.execute(
+            f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
+        conn.commit()
+
+    with_retry(_do)
+
+
 def connect(db_path=None):
     path = db_path or default_db_path()
     Path(path).parent.mkdir(parents=True, exist_ok=True)

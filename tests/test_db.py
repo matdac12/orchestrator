@@ -71,5 +71,40 @@ class ProjectTest(unittest.TestCase):
             db.require_project(self.conn, "nope")
 
 
+class TaskTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+
+    def test_add_task_returns_id_and_defaults_todo(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X", issue_ref="LIN-1")
+        row = self.conn.execute(
+            "SELECT * FROM tasks WHERE id = ?", (tid,)).fetchone()
+        self.assertEqual(row["status"], "todo")
+        self.assertEqual(row["agent"], "B")
+        self.assertEqual(row["issue_ref"], "LIN-1")
+
+    def test_update_task_changes_fields_and_touches_updated_at(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X")
+        before = self.conn.execute(
+            "SELECT updated_at FROM tasks WHERE id=?", (tid,)).fetchone()[0]
+        db.update_task(self.conn, tid, status="merged", branch="feat/x")
+        row = self.conn.execute(
+            "SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
+        self.assertEqual(row["status"], "merged")
+        self.assertEqual(row["branch"], "feat/x")
+        self.assertNotEqual(row["updated_at"], before)
+
+    def test_update_task_rejects_bad_status(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X")
+        with self.assertRaises(ValueError):
+            db.update_task(self.conn, tid, status="nonsense")
+
+    def test_update_task_missing_id_raises(self):
+        with self.assertRaises(db.NotFound):
+            db.update_task(self.conn, 999, status="done")
+
+
 if __name__ == "__main__":
     unittest.main()
