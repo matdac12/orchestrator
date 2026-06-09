@@ -67,6 +67,21 @@ def cmd_log(conn, args):
     return 0
 
 
+def cmd_post(conn, args):
+    eid = db.post_event(conn, _project(args), args.agent,
+                        kind=args.kind, message=args.msg,
+                        task_id=args.task, status=args.status,
+                        branch=args.branch)
+    print(f"event posted: {eid}")
+    return 0
+
+
+def cmd_serve(conn, args):
+    from orch.server import serve
+    serve(_project(args), port=args.port)
+    return 0
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="orch")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -104,6 +119,22 @@ def build_parser():
     pl.add_argument("--agent")
     pl.add_argument("-n", type=int, default=20)
     pl.set_defaults(func=cmd_log)
+
+    pp = sub.add_parser("post")
+    pp.add_argument("--project")
+    pp.add_argument("--agent", required=True)
+    pp.add_argument("--task", type=int)
+    pp.add_argument("--kind", default="status",
+                    choices=["status", "note", "blocker", "handoff"])
+    pp.add_argument("--status")
+    pp.add_argument("--branch")
+    pp.add_argument("--msg", default="")
+    pp.set_defaults(func=cmd_post)
+
+    pv = sub.add_parser("serve")
+    pv.add_argument("--project")
+    pv.add_argument("--port", type=int, default=8787)
+    pv.set_defaults(func=cmd_serve)
 
     return p
 
