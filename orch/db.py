@@ -59,6 +59,43 @@ def with_retry(action, attempts=5, base_delay=0.05):
             raise
 
 
+class NotFound(Exception):
+    pass
+
+
+class Ambiguous(Exception):
+    pass
+
+
+def create_project(conn, name, notes=None):
+    existing = get_project(conn, name)
+    if existing:
+        return existing["id"], False
+
+    def _do():
+        cur = conn.execute(
+            "INSERT INTO projects (name, created_at, notes) VALUES (?, ?, ?)",
+            (name, now(), notes),
+        )
+        conn.commit()
+        return cur.lastrowid
+
+    return with_retry(_do), True
+
+
+def get_project(conn, name):
+    return conn.execute(
+        "SELECT * FROM projects WHERE name = ?", (name,)
+    ).fetchone()
+
+
+def require_project(conn, name):
+    row = get_project(conn, name)
+    if row is None:
+        raise NotFound(f"project '{name}' not found (run: orch init {name})")
+    return row
+
+
 def connect(db_path=None):
     path = db_path or default_db_path()
     Path(path).parent.mkdir(parents=True, exist_ok=True)

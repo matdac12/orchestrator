@@ -48,5 +48,28 @@ class RetryTest(unittest.TestCase):
             db.with_retry(action, base_delay=0.0)
 
 
+class ProjectTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+
+    def test_create_is_get_or_create(self):
+        pid1, created1 = db.create_project(self.conn, "demo", notes="hi")
+        pid2, created2 = db.create_project(self.conn, "demo")
+        self.assertTrue(created1)
+        self.assertFalse(created2)
+        self.assertEqual(pid1, pid2)
+
+    def test_get_project_returns_none_when_missing(self):
+        self.assertIsNone(db.get_project(self.conn, "nope"))
+        db.create_project(self.conn, "demo")
+        row = db.get_project(self.conn, "demo")
+        self.assertEqual(row["name"], "demo")
+
+    def test_require_project_raises_when_missing(self):
+        with self.assertRaises(db.NotFound):
+            db.require_project(self.conn, "nope")
+
+
 if __name__ == "__main__":
     unittest.main()
