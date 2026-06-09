@@ -27,5 +27,26 @@ class DBSetupTest(unittest.TestCase):
         self.assertEqual("wal", mode.lower())
 
 
+class RetryTest(unittest.TestCase):
+    def test_with_retry_recovers_from_locked(self):
+        calls = {"n": 0}
+
+        def action():
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise sqlite3.OperationalError("database is locked")
+            return "ok"
+
+        self.assertEqual(db.with_retry(action, base_delay=0.0), "ok")
+        self.assertEqual(calls["n"], 3)
+
+    def test_with_retry_reraises_other_errors(self):
+        def action():
+            raise sqlite3.OperationalError("no such table")
+
+        with self.assertRaises(sqlite3.OperationalError):
+            db.with_retry(action, base_delay=0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

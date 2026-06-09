@@ -48,6 +48,17 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def with_retry(action, attempts=5, base_delay=0.05):
+    for i in range(attempts):
+        try:
+            return action()
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e).lower() and i < attempts - 1:
+                time.sleep(base_delay * (2 ** i))
+                continue
+            raise
+
+
 def connect(db_path=None):
     path = db_path or default_db_path()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
