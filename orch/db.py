@@ -141,6 +141,64 @@ def update_task(conn, task_id, status=None, branch=None, issue_ref=None):
     with_retry(_do)
 
 
+def _active_tasks(conn, project_id, agent):
+    placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+    return conn.execute(
+        f"SELECT * FROM tasks WHERE project_id = ? AND agent = ? "
+        f"AND status IN ({placeholders}) ORDER BY updated_at DESC",
+        (project_id, agent, *ACTIVE_STATUSES),
+    ).fetchall()
+
+
+def post_event(conn, project, agent, kind="status", message="",
+               task_id=None, status=None, branch=None):
+    if status is not None and status not in TASK_STATUSES:
+        raise ValueError(
+            f"invalid status '{status}', expected one of {TASK_STATUSES}")
+    pid = require_project(conn, project)["id"]
+
+    # Resolve target task when we need one (status/branch update) or when a
+    # single active task exists to attach the event to.
+    need_task = status is not None or branch is not None
+    if task_id is None:
+        active = _active_tasks(conn, pid, agent)
+        if need_task:
+            if len(active) == 0:
+                raise NotFound(
+                    f"agent '{agent}' has no active task in '{project}' "
+                    f"to apply status/branch to; pass --task")
+            if len(active) > 1:
+                raise Ambiguous(
+                    f"agent '{agent}' has {len(active)} active tasks; "
+                    f"pass --task <id>")
+            task_id = active[0]["id"]
+        elif len(active) == 1:
+            task_id = active[0]["id"]
+
+    ts = now()
+
+    def _do():
+        cur = conn.execute(
+            "INSERT INTO events (project_id, task_id, agent, kind, message, "
+            "created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (pid, task_id, agent, kind, message, ts),
+        )
+        if need_task:
+            sets, params = [], []
+            if status is not None:
+                sets.append("status = ?"); params.append(status)
+            if branch is not None:
+                sets.append("branch = ?"); params.append(branch)
+            sets.append("updated_at = ?"); params.append(ts)
+            params.append(task_id)
+            conn.execute(
+                f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
+        conn.commit()
+        return cur.lastrowid
+
+    return with_retry(_do)
+
+
 def connect(db_path=None):
     path = db_path or default_db_path()
     Path(path).parent.mkdir(parents=True, exist_ok=True)

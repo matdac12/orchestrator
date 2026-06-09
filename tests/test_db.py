@@ -106,5 +106,54 @@ class TaskTest(unittest.TestCase):
             db.update_task(self.conn, 999, status="done")
 
 
+class PostTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+
+    def test_post_appends_event(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X")
+        eid = db.post_event(self.conn, "demo", "B", kind="note",
+                            message="hi", task_id=tid)
+        row = self.conn.execute(
+            "SELECT * FROM events WHERE id=?", (eid,)).fetchone()
+        self.assertEqual(row["message"], "hi")
+        self.assertEqual(row["kind"], "note")
+        self.assertEqual(row["task_id"], tid)
+
+    def test_post_with_status_updates_linked_task(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X")
+        db.post_event(self.conn, "demo", "B", status="done",
+                     branch="feat/x", message="ready")
+        row = self.conn.execute(
+            "SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
+        self.assertEqual(row["status"], "done")
+        self.assertEqual(row["branch"], "feat/x")
+
+    def test_post_auto_targets_single_active_task(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X")
+        eid = db.post_event(self.conn, "demo", "B", message="working")
+        row = self.conn.execute(
+            "SELECT task_id FROM events WHERE id=?", (eid,)).fetchone()
+        self.assertEqual(row["task_id"], tid)
+
+    def test_post_ambiguous_active_tasks_without_status(self):
+        db.add_task(self.conn, "demo", "B", "task1")
+        db.add_task(self.conn, "demo", "B", "task2")
+        # ambiguous only matters when we must pick a task to update;
+        # a plain note with no task and no status is allowed (task_id None)
+        eid = db.post_event(self.conn, "demo", "B", message="generic")
+        row = self.conn.execute(
+            "SELECT task_id FROM events WHERE id=?", (eid,)).fetchone()
+        self.assertIsNone(row["task_id"])
+
+    def test_post_status_ambiguous_raises(self):
+        db.add_task(self.conn, "demo", "B", "task1")
+        db.add_task(self.conn, "demo", "B", "task2")
+        with self.assertRaises(db.Ambiguous):
+            db.post_event(self.conn, "demo", "B", status="done")
+
+
 if __name__ == "__main__":
     unittest.main()
