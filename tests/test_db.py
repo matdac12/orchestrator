@@ -97,10 +97,18 @@ class TaskTest(unittest.TestCase):
         self.assertEqual(row["status"], "executing")
 
     def test_update_task_changes_fields_and_touches_updated_at(self):
-        tid = db.add_task(self.conn, "demo", "B", "build X")
-        before = self.conn.execute(
-            "SELECT updated_at FROM tasks WHERE id=?", (tid,)).fetchone()[0]
-        db.update_task(self.conn, tid, status="merged", branch="feat/x")
+        # Drive db.now() with a deterministic clock so the assertion never
+        # depends on wall-clock resolution (coarse on Windows).
+        stamps = iter(["2026-01-01T00:00:00", "2026-01-01T00:00:01"])
+        orig_now = db.now
+        db.now = lambda: next(stamps)
+        try:
+            tid = db.add_task(self.conn, "demo", "B", "build X")
+            before = self.conn.execute(
+                "SELECT updated_at FROM tasks WHERE id=?", (tid,)).fetchone()[0]
+            db.update_task(self.conn, tid, status="merged", branch="feat/x")
+        finally:
+            db.now = orig_now
         row = self.conn.execute(
             "SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
         self.assertEqual(row["status"], "merged")
