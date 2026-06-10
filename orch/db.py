@@ -121,7 +121,8 @@ def add_task(conn, project, agent, title, issue_ref=None, branch=None,
     return with_retry(_do)
 
 
-def update_task(conn, task_id, status=None, branch=None, issue_ref=None):
+def update_task(conn, task_id, status=None, branch=None, issue_ref=None,
+                plan_path=None, context=None):
     if status is not None and status not in TASK_STATUSES:
         raise ValueError(
             f"invalid status '{status}', expected one of {TASK_STATUSES}")
@@ -137,6 +138,10 @@ def update_task(conn, task_id, status=None, branch=None, issue_ref=None):
         sets.append("branch = ?"); params.append(branch)
     if issue_ref is not None:
         sets.append("issue_ref = ?"); params.append(issue_ref)
+    if plan_path is not None:
+        sets.append("plan_path = ?"); params.append(plan_path)
+    if context is not None:
+        sets.append("context = ?"); params.append(context)
     sets.append("updated_at = ?"); params.append(now())
     params.append(task_id)
 

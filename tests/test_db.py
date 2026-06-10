@@ -107,6 +107,15 @@ class TaskTest(unittest.TestCase):
         self.assertEqual(row["branch"], "feat/x")
         self.assertNotEqual(row["updated_at"], before)
 
+    def test_update_task_sets_plan_and_context(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X")
+        db.update_task(self.conn, tid,
+                       plan_path="docs/plan.md", context="revised brief")
+        row = self.conn.execute(
+            "SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
+        self.assertEqual(row["plan_path"], "docs/plan.md")
+        self.assertEqual(row["context"], "revised brief")
+
     def test_update_task_rejects_bad_status(self):
         tid = db.add_task(self.conn, "demo", "B", "build X")
         with self.assertRaises(ValueError):
