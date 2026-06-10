@@ -104,6 +104,12 @@ def cmd_post(conn, args):
     return 0
 
 
+def cmd_notify(conn, args):
+    from orch.notify import send
+    send(args.msg, title=args.title)
+    return 0
+
+
 def cmd_serve(conn, args):
     from orch.server import serve
     serve(_project(args), port=args.port)
@@ -175,6 +181,12 @@ def build_parser():
     pc.add_argument("--agent", required=True)
     pc.add_argument("--json", action="store_true")
     pc.set_defaults(func=cmd_claim)
+
+    pnf = sub.add_parser("notify")
+    pnf.add_argument("--project")
+    pnf.add_argument("--msg", required=True)
+    pnf.add_argument("--title")
+    pnf.set_defaults(func=cmd_notify)
 
     pv = sub.add_parser("serve")
     pv.add_argument("--project")

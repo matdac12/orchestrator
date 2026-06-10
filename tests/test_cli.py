@@ -130,5 +130,18 @@ class CLITest(unittest.TestCase):
         _ = tid
 
 
+    def test_notify_dry_run_succeeds(self):
+        # No token configured -> dry-run, prints message, exit 0
+        env = dict(os.environ, ORCH_DB=self.db)
+        for k in ("ORCH_TG_TOKEN", "ORCH_TG_CHAT", "ORCH_TG_CONFIG"):
+            env.pop(k, None)
+        out = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "orch.py"),
+             "notify", "--msg", "ping", "--title", "T"],
+            capture_output=True, text=True, env=env)
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("ping", out.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
