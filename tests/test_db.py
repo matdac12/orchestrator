@@ -202,6 +202,27 @@ class NextTaskTest(unittest.TestCase):
         self.assertEqual(nxt["status"], "executing")
 
 
+class ClaimTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+
+    def test_claim_transitions_oldest_queued(self):
+        t1 = db.add_task(self.conn, "demo", "A", "first")
+        db.add_task(self.conn, "demo", "A", "second")
+        claimed = db.claim_next(self.conn, "demo", "A")
+        self.assertEqual(claimed["id"], t1)
+        self.assertEqual(claimed["status"], "discussing")
+        row = self.conn.execute(
+            "SELECT status FROM tasks WHERE id=?", (t1,)).fetchone()
+        self.assertEqual(row["status"], "discussing")
+
+    def test_claim_returns_none_when_nothing_queued(self):
+        db.add_task(self.conn, "demo", "A", "x", status="executing")
+        self.assertIsNone(db.claim_next(self.conn, "demo", "A"))
+
+
 class StateTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
