@@ -37,6 +37,12 @@ class ServerTest(unittest.TestCase):
         self.assertIn("text/html", ctype)
         self.assertIn("demo", html)
 
+    def test_index_has_v2_status_classes(self):
+        html, _ = server.render_index("demo")
+        for cls in ("queued", "discussing", "executing",
+                    "blocked", "done", "merged"):
+            self.assertIn("." + cls, html)
+
 
 if __name__ == "__main__":
     unittest.main()

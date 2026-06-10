@@ -6,9 +6,10 @@ PAGE = """<!doctype html>
  .cols{{display:flex;gap:12px;padding:16px;flex-wrap:wrap}}
  .agent{{flex:1;min-width:200px;background:#171a21;border-radius:8px;padding:12px}}
  .badge{{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px}}
- .todo{{background:#444}} .in_progress{{background:#1f6feb}}
- .blocked{{background:#b54708}} .done{{background:#238636}}
- .merged{{background:#8957e5}} .idle{{background:#333}}
+ .queued{{background:#444}} .discussing{{background:#1f6feb}}
+ .executing{{background:#0e7490}} .blocked{{background:#b54708}}
+ .done{{background:#238636}} .merged{{background:#8957e5}}
+ .idle{{background:#333}}
  .feed{{padding:0 16px 24px}} .ev{{padding:6px 0;border-top:1px solid #222}}
  .muted{{color:#8b949e;font-size:12px}}
 </style></head><body>
