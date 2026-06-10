@@ -23,14 +23,16 @@ def cmd_init(conn, args):
 def cmd_task_add(conn, args):
     tid = db.add_task(conn, _project(args), args.agent, args.title,
                       issue_ref=args.issue, branch=args.branch,
-                      worktree=args.worktree)
+                      worktree=args.worktree, context=args.context,
+                      status=args.status)
     print(f"task added: {tid}")
     return 0
 
 
 def cmd_task_update(conn, args):
     db.update_task(conn, args.task, status=args.status,
-                   branch=args.branch, issue_ref=args.issue)
+                   branch=args.branch, issue_ref=args.issue,
+                   plan_path=args.plan, context=args.context)
     print(f"task {args.task} updated")
     return 0
 
@@ -100,6 +102,8 @@ def build_parser():
     ta.add_argument("--issue")
     ta.add_argument("--branch")
     ta.add_argument("--worktree")
+    ta.add_argument("--context")
+    ta.add_argument("--status", default="queued")
     ta.set_defaults(func=cmd_task_add)
     tu = tsub.add_parser("update")
     tu.add_argument("--project")
@@ -107,6 +111,8 @@ def build_parser():
     tu.add_argument("--status")
     tu.add_argument("--branch")
     tu.add_argument("--issue")
+    tu.add_argument("--plan")
+    tu.add_argument("--context")
     tu.set_defaults(func=cmd_task_update)
 
     ps = sub.add_parser("status")
@@ -125,7 +131,8 @@ def build_parser():
     pp.add_argument("--agent", required=True)
     pp.add_argument("--task", type=int)
     pp.add_argument("--kind", default="status",
-                    choices=["status", "note", "blocker", "handoff"])
+                    choices=["status", "note", "blocker", "handoff",
+                             "needs_discussion"])
     pp.add_argument("--status")
     pp.add_argument("--branch")
     pp.add_argument("--msg", default="")

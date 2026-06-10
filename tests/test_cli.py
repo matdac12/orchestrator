@@ -55,6 +55,39 @@ class CLITest(unittest.TestCase):
         self.assertEqual(out.returncode, 0)
         self.assertIn("hello", out.stdout)
 
+    def test_task_add_context_and_status_persist(self):
+        run(["init", "demo"], self.db)
+        add = run(["task", "add", "--project", "demo", "--agent", "A",
+                   "--title", "X", "--context", "kickoff brief",
+                   "--status", "queued"], self.db)
+        self.assertEqual(add.returncode, 0)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["context"], "kickoff brief")
+        self.assertEqual(state["tasks"][0]["status"], "queued")
+
+    def test_task_update_plan_path(self):
+        run(["init", "demo"], self.db)
+        add = run(["task", "add", "--project", "demo", "--agent", "A",
+                   "--title", "X"], self.db)
+        tid = int(add.stdout.strip().split()[-1])
+        upd = run(["task", "update", "--project", "demo", "--task", str(tid),
+                   "--plan", "docs/p.md"], self.db)
+        self.assertEqual(upd.returncode, 0)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["plan_path"], "docs/p.md")
+
+    def test_post_needs_discussion_kind(self):
+        run(["init", "demo"], self.db)
+        run(["task", "add", "--project", "demo", "--agent", "A",
+             "--title", "X"], self.db)
+        out = run(["post", "--project", "demo", "--agent", "A",
+                   "--kind", "needs_discussion", "--msg", "come talk"], self.db)
+        self.assertEqual(out.returncode, 0)
+        log = run(["log", "--project", "demo"], self.db)
+        self.assertIn("needs_discussion", log.stdout)
+
     def test_post_status_updates_task(self):
         run(["init", "demo"], self.db)
         add = run(["task", "add", "--project", "demo", "--agent", "B",
