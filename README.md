@@ -26,18 +26,33 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 | command | purpose |
 |---|---|
 | `init <name>` | register a project |
-| `task add` | create a task for an agent (`--agent --title [--issue --branch --worktree]`) |
-| `task update` | amend a task (`--task <id> [--status --branch --issue]`) |
-| `post` | append an event; updates the task on `--status`/`--branch` |
+| `task add` | create a task (`--agent --title [--context --status --issue --branch --worktree]`); default status `queued` |
+| `task update` | amend a task (`--task <id> [--status --branch --issue --plan --context]`) |
+| `next --agent A [--json]` | the agent's single active task, or empty |
+| `claim --agent A [--json]` | atomically take the agent's oldest `queued` task (→ `discussing`) |
+| `post` | append an event; updates the task on `--status`/`--branch`; `--kind status\|note\|blocker\|handoff\|needs_discussion` |
 | `status [--json]` | current agent/task state + recent events |
 | `log [--agent -n]` | recent event feed |
+| `notify --msg ... [--title ...]` | send a Telegram ping (dry-run if no token) |
 | `serve [--port]` | on-demand web dashboard |
 
-## Orchestrating skill
+Task lifecycle: `queued → discussing → executing → done → merged` (plus `blocked`).
 
-`.claude/skills/orchestrating/SKILL.md` drives the orchestrator session: read state,
-reconcile with Linear, split parallel work, hand out worker prompts, acknowledge
-completions.
+## Skills (the autonomous loop)
+
+- **`/work <AGENT>`** — run a worker window as `/loop /work A`. Polls for its task,
+  brainstorms with you on a kickoff, then executes the plan and reports.
+- **`/orchestrate`** — run the orchestrator window as `/loop /orchestrate`. Merges
+  finished branches, updates Linear, and pings you for direction or blockers.
+
+Both live in `.claude/skills/`.
+
+## Telegram notifications
+
+`orch notify` reads `ORCH_TG_TOKEN` + `ORCH_TG_CHAT`, or a JSON file at
+`~/.orchestrator/telegram.json` (`{"token": "...", "chat_id": ...}`; override the path
+with `ORCH_TG_CONFIG`). With no credentials it prints the message and exits 0, so the
+loop never breaks.
 
 ## Development
 
