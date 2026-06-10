@@ -22,7 +22,7 @@ project you serve (the human tells you, or it is already exported). All commands
    - **`queued`** → `orch claim --agent <AGENT> --json` to take it (→ `discussing`).
      Then:
      - `orch notify --msg "Agent <AGENT>: <title> — <context>" --title "Come discuss"`
-     - Post the signal: `orch post --agent <AGENT> --kind needs_discussion --msg "claimed, awaiting brainstorm"`
+     - Post the signal: `orch post --agent <AGENT> --kind needs_discussion --msg "claimed, awaiting brainstorm"` (this specific kind has no /report alias; use it as-is)
      - Brainstorm WITH the human: invoke `superpowers:brainstorming`, using the
        task's `context` as the starting brief, through to `superpowers:writing-plans`.
      - When the plan file exists: `orch task update --task <id> --plan <plan_path>`.
@@ -35,23 +35,20 @@ project you serve (the human tells you, or it is already exported). All commands
    - **`blocked`** → do nothing; the human must intervene. End the turn.
 
 3. **Execute (after plan approval):**
-   - `orch post --agent <AGENT> --status executing --msg "executing plan"` (this also
-     flips the task to `executing`).
+   - `/report executing executing plan` (flips the task to `executing`).
    - Implement the plan via `superpowers:executing-plans`. After each plan task:
-     `orch post --agent <AGENT> --msg "plan task N done"`.
-   - Self-review: run the project's `/checkpoint` skill if present, then
-     `superpowers:requesting-code-review`. Address findings.
-   - Commit to a branch named `feat/<short-task-slug>`.
+     `/report plan task N done` (recorded as a note).
+   - Self-review and finish with `/checkpoint` — it runs code review, optional Codex
+     review, commits your branch, and reports `done` for you.
 
 4. **Finish:**
-   - `orch post --agent <AGENT> --status done --branch <branch> --msg "ready for review"`.
-   - Loop back to step 1 for the next task.
+   - `/checkpoint` (Step 3 above) already reported `done`. Loop back to step 1 for the
+     next task.
 
 ## Blockers
 
 If you cannot proceed at any point:
-- `orch post --agent <AGENT> --status blocked --kind blocker --msg "<why>"`
-- `orch notify --msg "Agent <AGENT> blocked: <why>" --title "Blocked"`
+- `/report blocked <why>` — records the blocker and pings the human automatically.
 - End the turn and wait for the human.
 
 ## Rules
@@ -60,5 +57,6 @@ If you cannot proceed at any point:
   and report `done`.
 - The human is only present for the brainstorm/plan-approval. Everything after
   approval is autonomous.
-- Keep `orch` posts short and frequent so the orchestrator and dashboard see live
-  progress.
+- Report via `/report` (short, frequent) so the orchestrator and dashboard stay live.
+- `ORCH_AGENT` and `ORCH_PROJECT` must be exported in this window so `/report` and
+  `/checkpoint` know who and where you are.
