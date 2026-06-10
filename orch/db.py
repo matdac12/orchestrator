@@ -249,6 +249,40 @@ def get_state(conn, project, events_limit=50):
     }
 
 
+def next_task(conn, project, agent):
+    pid = require_project(conn, project)["id"]
+    placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+    row = conn.execute(
+        f"SELECT * FROM tasks WHERE project_id = ? AND agent = ? "
+        f"AND status IN ({placeholders}) ORDER BY created_at, id LIMIT 1",
+        (pid, agent, *ACTIVE_STATUSES),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def claim_next(conn, project, agent):
+    pid = require_project(conn, project)["id"]
+
+    def _do():
+        row = conn.execute(
+            "SELECT id FROM tasks WHERE project_id = ? AND agent = ? "
+            "AND status = 'queued' ORDER BY created_at, id LIMIT 1",
+            (pid, agent),
+        ).fetchone()
+        if row is None:
+            return None
+        cur = conn.execute(
+            "UPDATE tasks SET status = 'discussing', updated_at = ? "
+            "WHERE id = ? AND status = 'queued'", (now(), row["id"]))
+        conn.commit()
+        if cur.rowcount == 0:
+            return None
+        return dict(conn.execute(
+            "SELECT * FROM tasks WHERE id = ?", (row["id"],)).fetchone())
+
+    return with_retry(_do)
+
+
 def connect(db_path=None):
     path = db_path or default_db_path()
     Path(path).parent.mkdir(parents=True, exist_ok=True)

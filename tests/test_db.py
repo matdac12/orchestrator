@@ -175,6 +175,33 @@ class PostTest(unittest.TestCase):
             db.post_event(self.conn, "demo", "B", status="done")
 
 
+class NextTaskTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+
+    def test_next_task_none_when_empty(self):
+        self.assertIsNone(db.next_task(self.conn, "demo", "A"))
+
+    def test_next_task_returns_oldest_active_for_agent(self):
+        t1 = db.add_task(self.conn, "demo", "A", "first")
+        db.add_task(self.conn, "demo", "A", "second")
+        nxt = db.next_task(self.conn, "demo", "A")
+        self.assertEqual(nxt["id"], t1)
+
+    def test_next_task_ignores_closed_and_other_agents(self):
+        db.add_task(self.conn, "demo", "A", "done one", status="merged")
+        db.add_task(self.conn, "demo", "B", "b task")
+        self.assertIsNone(db.next_task(self.conn, "demo", "A"))
+
+    def test_next_task_includes_discussing_and_executing(self):
+        tid = db.add_task(self.conn, "demo", "A", "x", status="executing")
+        nxt = db.next_task(self.conn, "demo", "A")
+        self.assertEqual(nxt["id"], tid)
+        self.assertEqual(nxt["status"], "executing")
+
+
 class StateTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
