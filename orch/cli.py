@@ -69,6 +69,32 @@ def cmd_log(conn, args):
     return 0
 
 
+def cmd_next(conn, args):
+    task = db.next_task(conn, _project(args), args.agent)
+    if task is None:
+        if not args.json:
+            print("no task")
+        return 0
+    if args.json:
+        print(json.dumps(task, indent=2))
+    else:
+        print(f"{task['id']} {task['status']} {task['title']}")
+    return 0
+
+
+def cmd_claim(conn, args):
+    task = db.claim_next(conn, _project(args), args.agent)
+    if task is None:
+        if not args.json:
+            print("no queued task")
+        return 0
+    if args.json:
+        print(json.dumps(task, indent=2))
+    else:
+        print(f"claimed {task['id']}: {task['title']}")
+    return 0
+
+
 def cmd_post(conn, args):
     eid = db.post_event(conn, _project(args), args.agent,
                         kind=args.kind, message=args.msg,
@@ -137,6 +163,18 @@ def build_parser():
     pp.add_argument("--branch")
     pp.add_argument("--msg", default="")
     pp.set_defaults(func=cmd_post)
+
+    pn = sub.add_parser("next")
+    pn.add_argument("--project")
+    pn.add_argument("--agent", required=True)
+    pn.add_argument("--json", action="store_true")
+    pn.set_defaults(func=cmd_next)
+
+    pc = sub.add_parser("claim")
+    pc.add_argument("--project")
+    pc.add_argument("--agent", required=True)
+    pc.add_argument("--json", action="store_true")
+    pc.set_defaults(func=cmd_claim)
 
     pv = sub.add_parser("serve")
     pv.add_argument("--project")

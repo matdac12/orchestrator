@@ -88,6 +88,31 @@ class CLITest(unittest.TestCase):
         log = run(["log", "--project", "demo"], self.db)
         self.assertIn("needs_discussion", log.stdout)
 
+    def test_next_empty_then_returns_task(self):
+        run(["init", "demo"], self.db)
+        empty = run(["next", "--project", "demo", "--agent", "A", "--json"],
+                    self.db)
+        self.assertEqual(empty.returncode, 0)
+        self.assertEqual(empty.stdout.strip(), "")
+        run(["task", "add", "--project", "demo", "--agent", "A",
+             "--title", "X"], self.db)
+        got = run(["next", "--project", "demo", "--agent", "A", "--json"],
+                  self.db)
+        self.assertEqual(json.loads(got.stdout)["title"], "X")
+
+    def test_claim_transitions_and_prints(self):
+        run(["init", "demo"], self.db)
+        run(["task", "add", "--project", "demo", "--agent", "A",
+             "--title", "X"], self.db)
+        claimed = run(["claim", "--project", "demo", "--agent", "A",
+                       "--json"], self.db)
+        self.assertEqual(claimed.returncode, 0)
+        self.assertEqual(json.loads(claimed.stdout)["status"], "discussing")
+        # second claim finds nothing queued
+        again = run(["claim", "--project", "demo", "--agent", "A", "--json"],
+                    self.db)
+        self.assertEqual(again.stdout.strip(), "")
+
     def test_post_status_updates_task(self):
         run(["init", "demo"], self.db)
         add = run(["task", "add", "--project", "demo", "--agent", "B",
