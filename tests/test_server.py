@@ -14,7 +14,7 @@ class ServerTest(unittest.TestCase):
         conn = db.connect(self.db)
         db.create_project(conn, "demo")
         db.add_task(conn, "demo", "B", "build X")
-        db.post_event(conn, "demo", "B", status="in_progress", message="go")
+        db.post_event(conn, "demo", "B", status="executing", message="go")
         conn.close()
 
     def tearDown(self):
@@ -25,7 +25,7 @@ class ServerTest(unittest.TestCase):
         self.assertIn("application/json", ctype)
         state = json.loads(body)
         self.assertEqual(state["project"]["name"], "demo")
-        self.assertEqual(state["agents"][0]["status"], "in_progress")
+        self.assertEqual(state["agents"][0]["status"], "executing")
 
     def test_api_state_unknown_project(self):
         body, ctype = server.render_api_state("nope")

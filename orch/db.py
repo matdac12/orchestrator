@@ -18,10 +18,12 @@ CREATE TABLE IF NOT EXISTS tasks (
     project_id INTEGER NOT NULL REFERENCES projects(id),
     agent      TEXT NOT NULL,
     title      TEXT NOT NULL,
-    status     TEXT NOT NULL DEFAULT 'todo',
+    status     TEXT NOT NULL DEFAULT 'queued',
     issue_ref  TEXT,
     branch     TEXT,
     worktree   TEXT,
+    context    TEXT,
+    plan_path  TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -36,8 +38,9 @@ CREATE TABLE IF NOT EXISTS events (
 );
 """
 
-ACTIVE_STATUSES = ("todo", "in_progress", "blocked")
-TASK_STATUSES = ("todo", "in_progress", "blocked", "done", "merged")
+ACTIVE_STATUSES = ("queued", "discussing", "executing", "blocked")
+TASK_STATUSES = ("queued", "discussing", "executing", "blocked",
+                 "done", "merged")
 
 
 def default_db_path():
@@ -96,17 +99,21 @@ def require_project(conn, name):
     return row
 
 
-def add_task(conn, project, agent, title,
-             issue_ref=None, branch=None, worktree=None):
+def add_task(conn, project, agent, title, issue_ref=None, branch=None,
+             worktree=None, context=None, status="queued"):
+    if status not in TASK_STATUSES:
+        raise ValueError(
+            f"invalid status '{status}', expected one of {TASK_STATUSES}")
     pid = require_project(conn, project)["id"]
     ts = now()
 
     def _do():
         cur = conn.execute(
             "INSERT INTO tasks (project_id, agent, title, status, issue_ref, "
-            "branch, worktree, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'todo', ?, ?, ?, ?, ?)",
-            (pid, agent, title, issue_ref, branch, worktree, ts, ts),
+            "branch, worktree, context, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, agent, title, status, issue_ref, branch, worktree,
+             context, ts, ts),
         )
         conn.commit()
         return cur.lastrowid

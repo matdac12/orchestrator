@@ -25,6 +25,8 @@ class DBSetupTest(unittest.TestCase):
         self.assertEqual({"projects", "tasks", "events"}, names)
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
         self.assertEqual("wal", mode.lower())
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}
+        self.assertTrue({"context", "plan_path"}.issubset(cols))
 
 
 class RetryTest(unittest.TestCase):
@@ -77,13 +79,22 @@ class TaskTest(unittest.TestCase):
         self.conn = db.connect(os.path.join(self.tmp, "state.db"))
         db.create_project(self.conn, "demo")
 
-    def test_add_task_returns_id_and_defaults_todo(self):
-        tid = db.add_task(self.conn, "demo", "B", "build X", issue_ref="LIN-1")
+    def test_add_task_defaults_queued_and_stores_context(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X",
+                          issue_ref="LIN-1", context="do the thing next")
         row = self.conn.execute(
             "SELECT * FROM tasks WHERE id = ?", (tid,)).fetchone()
-        self.assertEqual(row["status"], "todo")
+        self.assertEqual(row["status"], "queued")
         self.assertEqual(row["agent"], "B")
         self.assertEqual(row["issue_ref"], "LIN-1")
+        self.assertEqual(row["context"], "do the thing next")
+        self.assertIsNone(row["plan_path"])
+
+    def test_add_task_accepts_explicit_status(self):
+        tid = db.add_task(self.conn, "demo", "B", "x", status="executing")
+        row = self.conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (tid,)).fetchone()
+        self.assertEqual(row["status"], "executing")
 
     def test_update_task_changes_fields_and_touches_updated_at(self):
         tid = db.add_task(self.conn, "demo", "B", "build X")
@@ -163,7 +174,7 @@ class StateTest(unittest.TestCase):
 
     def test_get_state_shape(self):
         tid = db.add_task(self.conn, "demo", "B", "build X")
-        db.post_event(self.conn, "demo", "B", status="in_progress",
+        db.post_event(self.conn, "demo", "B", status="executing",
                      message="starting")
         state = db.get_state(self.conn, "demo")
         self.assertEqual(state["project"]["name"], "demo")
@@ -171,7 +182,7 @@ class StateTest(unittest.TestCase):
         self.assertEqual(len(state["events"]), 1)
         agents = {a["agent"]: a for a in state["agents"]}
         self.assertIn("B", agents)
-        self.assertEqual(agents["B"]["status"], "in_progress")
+        self.assertEqual(agents["B"]["status"], "executing")
         self.assertEqual(agents["B"]["current_task"]["id"], tid)
         self.assertEqual(agents["B"]["last_event"]["message"], "starting")
 
