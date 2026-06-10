@@ -104,6 +104,20 @@ def cmd_post(conn, args):
     return 0
 
 
+def cmd_report(conn, args):
+    import os
+    from orch import report as report_mod
+    agent = args.agent or os.environ.get("ORCH_AGENT")
+    if not agent:
+        print("error: no agent given (use --agent or ORCH_AGENT)",
+              file=sys.stderr)
+        return 1
+    report_mod.report(conn, _project(args), agent, args.status,
+                      msg=args.msg, branch=args.branch)
+    print("reported")
+    return 0
+
+
 def cmd_notify(conn, args):
     from orch.notify import send
     send(args.msg, title=args.title)
@@ -181,6 +195,15 @@ def build_parser():
     pc.add_argument("--agent", required=True)
     pc.add_argument("--json", action="store_true")
     pc.set_defaults(func=cmd_claim)
+
+    pr = sub.add_parser("report")
+    pr.add_argument("--project")
+    pr.add_argument("--agent")
+    pr.add_argument("--status", required=True,
+                    choices=["executing", "done", "blocked", "note"])
+    pr.add_argument("--msg", default="")
+    pr.add_argument("--branch")
+    pr.set_defaults(func=cmd_report)
 
     pnf = sub.add_parser("notify")
     pnf.add_argument("--project")

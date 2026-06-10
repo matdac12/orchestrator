@@ -130,6 +130,76 @@ class CLITest(unittest.TestCase):
         _ = tid
 
 
+    def _run_agent(self, args, agent="A"):
+        env = dict(os.environ, ORCH_DB=self.db, ORCH_AGENT=agent)
+        for k in ("ORCH_TG_TOKEN", "ORCH_TG_CHAT", "ORCH_TG_CONFIG"):
+            env.pop(k, None)
+        return subprocess.run(
+            [sys.executable, os.path.join(ROOT, "orch.py"), *args],
+            capture_output=True, text=True, env=env)
+
+    def test_report_executing_uses_env_agent(self):
+        run(["init", "demo"], self.db)
+        run(["task", "add", "--project", "demo", "--agent", "A",
+             "--title", "X", "--status", "discussing"], self.db)
+        out = self._run_agent(
+            ["report", "--project", "demo", "--status", "executing",
+             "--msg", "go"])
+        self.assertEqual(out.returncode, 0)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["status"], "executing")
+
+    def test_report_done_records_branch(self):
+        run(["init", "demo"], self.db)
+        run(["task", "add", "--project", "demo", "--agent", "A",
+             "--title", "X", "--status", "executing"], self.db)
+        out = self._run_agent(
+            ["report", "--project", "demo", "--status", "done",
+             "--branch", "feat/z"])
+        self.assertEqual(out.returncode, 0)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["status"], "done")
+        self.assertEqual(state["tasks"][0]["branch"], "feat/z")
+
+    def test_report_blocked_notifies_dry_run(self):
+        run(["init", "demo"], self.db)
+        run(["task", "add", "--project", "demo", "--agent", "A",
+             "--title", "X", "--status", "executing"], self.db)
+        out = self._run_agent(
+            ["report", "--project", "demo", "--status", "blocked",
+             "--msg", "stuck"])
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("dry-run", out.stdout)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["status"], "blocked")
+
+    def test_report_agent_flag_overrides_env(self):
+        run(["init", "demo"], self.db)
+        run(["task", "add", "--project", "demo", "--agent", "B",
+             "--title", "Y", "--status", "executing"], self.db)
+        out = self._run_agent(
+            ["report", "--project", "demo", "--agent", "B",
+             "--status", "done", "--branch", "b/x"])
+        self.assertEqual(out.returncode, 0)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["status"], "done")
+
+    def test_report_missing_identity_errors(self):
+        run(["init", "demo"], self.db)
+        env = dict(os.environ, ORCH_DB=self.db)
+        env.pop("ORCH_AGENT", None)
+        out = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "orch.py"),
+             "report", "--project", "demo", "--status", "note",
+             "--msg", "hi"],
+            capture_output=True, text=True, env=env)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("agent", out.stderr.lower())
+
     def test_notify_dry_run_succeeds(self):
         # No token configured -> dry-run, prints message, exit 0
         env = dict(os.environ, ORCH_DB=self.db)
