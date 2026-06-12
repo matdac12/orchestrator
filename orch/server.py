@@ -1,6 +1,7 @@
+import html
 import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse, parse_qs
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs, quote
 
 from orch import db
 from orch.dashboard import PAGE
@@ -18,7 +19,9 @@ def render_api_state(project):
 
 
 def render_index(project):
-    return PAGE.format(project=project), "text/html; charset=utf-8"
+    page = PAGE.format(project=html.escape(project),
+                       project_qs=quote(project, safe=""))
+    return page, "text/html; charset=utf-8"
 
 
 def make_handler(default_project):
@@ -51,7 +54,7 @@ def make_handler(default_project):
 
 
 def serve(project, port=8787):
-    httpd = HTTPServer(("127.0.0.1", port), make_handler(project))
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), make_handler(project))
     print(f"orch dashboard: http://127.0.0.1:{port}/  (project: {project})")
     print("Ctrl+C to stop.")
     try:

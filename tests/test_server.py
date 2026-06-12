@@ -37,6 +37,11 @@ class ServerTest(unittest.TestCase):
         self.assertIn("text/html", ctype)
         self.assertIn("demo", html)
 
+    def test_index_escapes_project_name(self):
+        html, _ = server.render_index('<script>alert(1)</script>')
+        self.assertNotIn("<script>alert(1)</script>", html)
+        self.assertIn("&lt;script&gt;", html)
+
     def test_index_has_v2_status_classes(self):
         html, _ = server.render_index("demo")
         for cls in ("queued", "discussing", "executing",
