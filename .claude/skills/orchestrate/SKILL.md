@@ -24,7 +24,12 @@ Resolve `<path>` = this repo's path and set `ORCH_PROJECT`. All commands:
      `orch task update --task <id> --status blocked`,
      `orch post --agent orchestrator --task <id> --kind blocker --msg "<why>"`,
      `orch notify --msg "Merge blocked on task <id>: <why>" --title "Orchestrator needs input"`.
-3. If nothing is actionable, end the turn; the loop reschedules.
+3. Check for stalled workers: `orch stale --project $ORCH_PROJECT --minutes 30 --notify`.
+   This flags any active task whose agent (worker session) has gone quiet past the
+   threshold — a likely dead or hung window — and pings the human. Workers post
+   progress through the same DB, so their last event acts as an implicit heartbeat;
+   a silent task in `executing` is the failure mode to surface, not babysit.
+4. If nothing is actionable, end the turn; the loop reschedules.
 
 ## Collaborative half (when the human is in the window)
 

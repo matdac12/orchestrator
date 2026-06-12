@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DEFAULT_DB = Path.home() / ".orchestrator" / "state.db"
@@ -247,6 +247,33 @@ def get_state(conn, project, events_limit=50):
         "tasks": tasks,
         "events": events,
     }
+
+
+def stale_tasks(conn, project, minutes=30):
+    """Active tasks whose agent has gone quiet.
+
+    A task counts as stale when neither its own updated_at nor the
+    latest event posted by its agent is newer than the cutoff. The
+    last event timestamp acts as an implicit heartbeat, since workers
+    post progress through the same DB.
+    """
+    pid = require_project(conn, project)["id"]
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(minutes=minutes)).isoformat()
+    placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+    rows = conn.execute(
+        f"SELECT t.*, "
+        f"  COALESCE(MAX(e.created_at), '') AS last_event_at "
+        f"FROM tasks t "
+        f"LEFT JOIN events e "
+        f"  ON e.project_id = t.project_id AND e.agent = t.agent "
+        f"WHERE t.project_id = ? AND t.status IN ({placeholders}) "
+        f"GROUP BY t.id "
+        f"HAVING t.updated_at < ? "
+        f"  AND COALESCE(MAX(e.created_at), '') < ?",
+        (pid, *ACTIVE_STATUSES, cutoff, cutoff),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def next_task(conn, project, agent):

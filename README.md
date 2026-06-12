@@ -92,6 +92,7 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 | `report --status S [--msg --agent --branch]` | worker shortcut: post `executing\|done\|blocked\|note`; agent from `ORCH_AGENT`; `done` auto-detects branch; `blocked` pings you |
 | `post` | append an event; updates the task on `--status`/`--branch`; `--kind status\|note\|blocker\|handoff\|needs_discussion` |
 | `status [--json]` | current agent/task state + recent events |
+| `stale [--minutes 30 --notify --json]` | active tasks whose agent has gone quiet past the threshold (dead/hung worker detection); `--notify` pings you |
 | `log [--agent -n]` | recent event feed |
 | `notify --msg ... [--title ...]` | send a Telegram ping (dry-run if no token) |
 | `serve [--port]` | on-demand web dashboard |
