@@ -109,9 +109,14 @@ merging.
 ## Skills (the autonomous loop)
 
 - **`/work <AGENT>`** — run a worker window as `/loop /work A`. Polls for its task,
-  brainstorms with you on a kickoff, then executes the plan and reports.
+  brainstorms with you on a kickoff, then executes the plan and reports. For
+  dated/old issues it does an **investigation-first** pass (gap-analysis code-vs-issue,
+  no code) and confirms scope with you before building, to avoid re-shipping work.
 - **`/orchestrate`** — run the orchestrator window as `/loop /orchestrate`. Merges
-  finished branches, updates Linear, and pings you for direction or blockers.
+  finished branches, updates Linear, and pings you for direction or blockers. Its
+  kickoffs follow a **collision-avoidance convention**: pre-assign each task's branch
+  (and migration name) and state explicit file boundaries ("owns X; do NOT touch Y,
+  agent Z owns it") so parallel agents never clobber each other.
 - **`/report <status> <message>`** — worker shortcut to record progress
   (`executing`/`done`/`blocked`/`note`); no flags to remember.
 - **`/checkpoint`** — worker post-work flow: code review → optional Codex review →
