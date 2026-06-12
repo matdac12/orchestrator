@@ -268,3 +268,127 @@ class StateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StaleTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _age(self, minutes):
+        from datetime import datetime, timedelta, timezone
+        return (datetime.now(timezone.utc)
+                - timedelta(minutes=minutes)).isoformat()
+
+    def _backdate_task(self, tid, minutes):
+        self.conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?",
+                          (self._age(minutes), tid))
+        self.conn.commit()
+
+    def test_quiet_active_task_is_stale(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X",
+                          status="executing")
+        self._backdate_task(tid, 60)
+        stale = db.stale_tasks(self.conn, "demo", minutes=30)
+        self.assertEqual([t["id"] for t in stale], [tid])
+
+    def test_recent_task_not_stale(self):
+        db.add_task(self.conn, "demo", "A", "build X", status="executing")
+        self.assertEqual(db.stale_tasks(self.conn, "demo", minutes=30), [])
+
+    def test_recent_event_counts_as_heartbeat(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X",
+                          status="executing")
+        self._backdate_task(tid, 60)
+        db.post_event(self.conn, "demo", "A", kind="note", message="alive")
+        self.assertEqual(db.stale_tasks(self.conn, "demo", minutes=30), [])
+
+    def test_old_events_do_not_mask_staleness(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X",
+                          status="executing")
+        db.post_event(self.conn, "demo", "A", kind="note", message="old")
+        self.conn.execute("UPDATE events SET created_at = ?",
+                          (self._age(90),))
+        self.conn.commit()
+        self._backdate_task(tid, 60)
+        stale = db.stale_tasks(self.conn, "demo", minutes=30)
+        self.assertEqual([t["id"] for t in stale], [tid])
+
+    def test_done_and_merged_tasks_ignored(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X", status="done")
+        self._backdate_task(tid, 120)
+        self.assertEqual(db.stale_tasks(self.conn, "demo", minutes=30), [])
+
+    def test_other_agents_events_do_not_count(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X",
+                          status="executing")
+        self._backdate_task(tid, 60)
+        db.post_event(self.conn, "demo", "B", kind="note", message="hi")
+        stale = db.stale_tasks(self.conn, "demo", minutes=30)
+        self.assertEqual([t["id"] for t in stale], [tid])
+
+
+class StaleTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _age(self, minutes):
+        from datetime import datetime, timedelta, timezone
+        return (datetime.now(timezone.utc)
+                - timedelta(minutes=minutes)).isoformat()
+
+    def _backdate_task(self, tid, minutes):
+        self.conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?",
+                          (self._age(minutes), tid))
+        self.conn.commit()
+
+    def test_quiet_active_task_is_stale(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X",
+                          status="executing")
+        self._backdate_task(tid, 60)
+        stale = db.stale_tasks(self.conn, "demo", minutes=30)
+        self.assertEqual([t["id"] for t in stale], [tid])
+
+    def test_recent_task_not_stale(self):
+        db.add_task(self.conn, "demo", "A", "build X", status="executing")
+        self.assertEqual(db.stale_tasks(self.conn, "demo", minutes=30), [])
+
+    def test_recent_event_counts_as_heartbeat(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X",
+                          status="executing")
+        self._backdate_task(tid, 60)
+        db.post_event(self.conn, "demo", "A", kind="note", message="alive")
+        self.assertEqual(db.stale_tasks(self.conn, "demo", minutes=30), [])
+
+    def test_old_events_do_not_mask_staleness(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X",
+                          status="executing")
+        db.post_event(self.conn, "demo", "A", kind="note", message="old")
+        self.conn.execute("UPDATE events SET created_at = ?",
+                          (self._age(90),))
+        self.conn.commit()
+        self._backdate_task(tid, 60)
+        stale = db.stale_tasks(self.conn, "demo", minutes=30)
+        self.assertEqual([t["id"] for t in stale], [tid])
+
+    def test_done_and_merged_tasks_ignored(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X", status="done")
+        self._backdate_task(tid, 120)
+        self.assertEqual(db.stale_tasks(self.conn, "demo", minutes=30), [])
+
+    def test_other_agents_events_do_not_count(self):
+        tid = db.add_task(self.conn, "demo", "A", "build X",
+                          status="executing")
+        self._backdate_task(tid, 60)
+        db.post_event(self.conn, "demo", "B", kind="note", message="hi")
+        stale = db.stale_tasks(self.conn, "demo", minutes=30)
+        self.assertEqual([t["id"] for t in stale], [tid])

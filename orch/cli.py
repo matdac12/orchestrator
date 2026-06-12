@@ -118,6 +118,27 @@ def cmd_report(conn, args):
     return 0
 
 
+def cmd_stale(conn, args):
+    project = _project(args)
+    tasks = db.stale_tasks(conn, project, minutes=args.minutes)
+    if args.json:
+        print(json.dumps(tasks, indent=2))
+    elif not tasks:
+        print(f"no stale tasks (threshold: {args.minutes}m)")
+    else:
+        for t in tasks:
+            last = t["last_event_at"] or "never"
+            print(f"{t['id']} [{t['agent']}] {t['status']} - {t['title']} "
+                  f"(updated {t['updated_at']}, last event {last})")
+    if tasks and args.notify:
+        from orch.notify import send
+        lines = [f"{t['id']} [{t['agent']}] {t['status']}: {t['title']}"
+                 for t in tasks]
+        send("\n".join(lines),
+             title=f"orch: {len(tasks)} stale task(s) in {project}")
+    return 0
+
+
 def cmd_notify(conn, args):
     from orch.notify import send
     send(args.msg, title=args.title)
@@ -204,6 +225,15 @@ def build_parser():
     pr.add_argument("--msg", default="")
     pr.add_argument("--branch")
     pr.set_defaults(func=cmd_report)
+
+    pst = sub.add_parser("stale")
+    pst.add_argument("--project")
+    pst.add_argument("--minutes", type=int, default=30,
+                     help="quiet threshold in minutes (default 30)")
+    pst.add_argument("--json", action="store_true")
+    pst.add_argument("--notify", action="store_true",
+                     help="send a Telegram ping if stale tasks exist")
+    pst.set_defaults(func=cmd_stale)
 
     pnf = sub.add_parser("notify")
     pnf.add_argument("--project")
