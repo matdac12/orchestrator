@@ -32,7 +32,8 @@ def cmd_task_add(conn, args):
 def cmd_task_update(conn, args):
     db.update_task(conn, args.task, status=args.status,
                    branch=args.branch, issue_ref=args.issue,
-                   plan_path=args.plan, context=args.context)
+                   plan_path=args.plan, context=args.context,
+                   force=args.force)
     print(f"task {args.task} updated")
     return 0
 
@@ -99,7 +100,7 @@ def cmd_post(conn, args):
     eid = db.post_event(conn, _project(args), args.agent,
                         kind=args.kind, message=args.msg,
                         task_id=args.task, status=args.status,
-                        branch=args.branch)
+                        branch=args.branch, force=args.force)
     print(f"event posted: {eid}")
     return 0
 
@@ -159,6 +160,8 @@ def build_parser():
     tu.add_argument("--issue")
     tu.add_argument("--plan")
     tu.add_argument("--context")
+    tu.add_argument("--force", action="store_true",
+                    help="bypass lifecycle transition validation")
     tu.set_defaults(func=cmd_task_update)
 
     ps = sub.add_parser("status")
@@ -182,6 +185,8 @@ def build_parser():
     pp.add_argument("--status")
     pp.add_argument("--branch")
     pp.add_argument("--msg", default="")
+    pp.add_argument("--force", action="store_true",
+                    help="bypass lifecycle transition validation")
     pp.set_defaults(func=cmd_post)
 
     pn = sub.add_parser("next")
@@ -225,7 +230,7 @@ def main(argv=None):
     conn = db.connect()
     try:
         return args.func(conn, args)
-    except (db.NotFound, db.Ambiguous, ValueError) as e:
+    except (db.NotFound, db.Ambiguous, db.InvalidTransition, ValueError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
     finally:

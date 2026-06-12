@@ -268,3 +268,60 @@ class StateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TransitionTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+        self.tid = db.add_task(self.conn, "demo", "A", "build X")
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _status(self):
+        return self.conn.execute(
+            "SELECT status FROM tasks WHERE id = ?",
+            (self.tid,)).fetchone()["status"]
+
+    def test_valid_lifecycle_path(self):
+        for s in ("discussing", "executing", "done", "merged"):
+            db.update_task(self.conn, self.tid, status=s)
+        self.assertEqual(self._status(), "merged")
+
+    def test_self_transition_allowed(self):
+        db.update_task(self.conn, self.tid, status="queued")
+        self.assertEqual(self._status(), "queued")
+
+    def test_merged_is_terminal(self):
+        db.update_task(self.conn, self.tid, status="done", force=True)
+        db.update_task(self.conn, self.tid, status="merged")
+        with self.assertRaises(db.InvalidTransition):
+            db.update_task(self.conn, self.tid, status="queued")
+
+    def test_done_cannot_go_back_to_queued(self):
+        db.update_task(self.conn, self.tid, status="done", force=True)
+        with self.assertRaises(db.InvalidTransition):
+            db.update_task(self.conn, self.tid, status="queued")
+
+    def test_force_bypasses_validation(self):
+        db.update_task(self.conn, self.tid, status="merged", force=True)
+        db.update_task(self.conn, self.tid, status="queued", force=True)
+        self.assertEqual(self._status(), "queued")
+
+    def test_post_event_validates_transition(self):
+        db.post_event(self.conn, "demo", "A", status="executing")
+        db.post_event(self.conn, "demo", "A", status="done")
+        with self.assertRaises(db.InvalidTransition):
+            db.post_event(self.conn, "demo", "A", status="discussing",
+                          task_id=self.tid)
+
+    def test_post_event_force(self):
+        db.post_event(self.conn, "demo", "A", status="merged",
+                      task_id=self.tid, force=True)
+        self.assertEqual(self._status(), "merged")
+
+    def test_invalid_status_string_still_rejected(self):
+        with self.assertRaises(ValueError):
+            db.update_task(self.conn, self.tid, status="bogus")
