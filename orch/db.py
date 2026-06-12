@@ -42,6 +42,34 @@ ACTIVE_STATUSES = ("queued", "discussing", "executing", "blocked")
 TASK_STATUSES = ("queued", "discussing", "executing", "blocked",
                  "done", "merged")
 
+# Allowed lifecycle transitions (self-transitions are always allowed).
+# Active statuses move freely among themselves and forward; 'done' can
+# only move forward to 'merged' or be reopened into executing/blocked
+# for rework; 'merged' is terminal.
+TRANSITIONS = {
+    "queued": {"discussing", "executing", "blocked", "done", "merged"},
+    "discussing": {"queued", "executing", "blocked", "done", "merged"},
+    "executing": {"queued", "discussing", "blocked", "done", "merged"},
+    "blocked": {"queued", "discussing", "executing", "done"},
+    "done": {"executing", "blocked", "merged"},
+    "merged": set(),
+}
+
+
+class InvalidTransition(Exception):
+    pass
+
+
+def check_transition(current, new, force=False):
+    if force or new == current:
+        return
+    if new not in TRANSITIONS.get(current, set()):
+        raise InvalidTransition(
+            f"invalid transition '{current}' -> '{new}' "
+            f"(allowed from '{current}': "
+            f"{sorted(TRANSITIONS.get(current, set())) or 'none — terminal'}; "
+            f"use --force to override)")
+
 
 def default_db_path():
     return os.environ.get("ORCH_DB") or str(DEFAULT_DB)
@@ -122,14 +150,16 @@ def add_task(conn, project, agent, title, issue_ref=None, branch=None,
 
 
 def update_task(conn, task_id, status=None, branch=None, issue_ref=None,
-                plan_path=None, context=None):
+                plan_path=None, context=None, force=False):
     if status is not None and status not in TASK_STATUSES:
         raise ValueError(
             f"invalid status '{status}', expected one of {TASK_STATUSES}")
     row = conn.execute(
-        "SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        "SELECT id, status FROM tasks WHERE id = ?", (task_id,)).fetchone()
     if row is None:
         raise NotFound(f"task {task_id} not found")
+    if status is not None:
+        check_transition(row["status"], status, force=force)
 
     sets, params = [], []
     if status is not None:
@@ -163,7 +193,7 @@ def _active_tasks(conn, project_id, agent):
 
 
 def post_event(conn, project, agent, kind="status", message="",
-               task_id=None, status=None, branch=None):
+               task_id=None, status=None, branch=None, force=False):
     if status is not None and status not in TASK_STATUSES:
         raise ValueError(
             f"invalid status '{status}', expected one of {TASK_STATUSES}")
@@ -186,6 +216,13 @@ def post_event(conn, project, agent, kind="status", message="",
             task_id = active[0]["id"]
         elif len(active) == 1:
             task_id = active[0]["id"]
+
+    if status is not None and task_id is not None:
+        cur_row = conn.execute(
+            "SELECT status FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if cur_row is None:
+            raise NotFound(f"task {task_id} not found")
+        check_transition(cur_row["status"], status, force=force)
 
     ts = now()
 
