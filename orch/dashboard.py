@@ -17,21 +17,25 @@ PAGE = """<!doctype html>
 <div id="cols" class="cols"></div>
 <div class="feed"><h3>events</h3><div id="feed"></div></div>
 <script>
+function esc(v){{
+  return String(v).replace(/[&<>"']/g, c => ({{
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]);
+}}
 async function tick(){{
-  const r = await fetch('/api/state?project={project}');
+  const r = await fetch('/api/state?project={project_qs}');
   const s = await r.json();
   if(s.error){{document.getElementById('cols').innerHTML =
-    '<div class=agent>'+s.error+'</div>';return;}}
+    '<div class=agent>'+esc(s.error)+'</div>';return;}}
   document.getElementById('cols').innerHTML = s.agents.map(a=>{{
-    const ct = a.current_task ? a.current_task.title : '<span class=muted>no task</span>';
+    const ct = a.current_task ? esc(a.current_task.title) : '<span class=muted>no task</span>';
     const br = a.current_task && a.current_task.branch ?
-      ' <span class=muted>['+a.current_task.branch+']</span>' : '';
-    return '<div class=agent><b>'+a.agent+'</b> '+
-      '<span class="badge '+a.status+'">'+a.status+'</span><br>'+ct+br+'</div>';
+      ' <span class=muted>['+esc(a.current_task.branch)+']</span>' : '';
+    return '<div class=agent><b>'+esc(a.agent)+'</b> '+
+      '<span class="badge '+esc(a.status)+'">'+esc(a.status)+'</span><br>'+ct+br+'</div>';
   }}).join('');
   document.getElementById('feed').innerHTML = s.events.map(e=>
-    '<div class=ev><span class=muted>'+e.created_at+'</span> '+
-    '<b>'+e.agent+'</b>/'+e.kind+': '+e.message+'</div>').join('');
+    '<div class=ev><span class=muted>'+esc(e.created_at)+'</span> '+
+    '<b>'+esc(e.agent)+'</b>/'+esc(e.kind)+': '+esc(e.message)+'</div>').join('');
 }}
 tick(); setInterval(tick, 3000);
 </script></body></html>"""
