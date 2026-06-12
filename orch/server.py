@@ -1,4 +1,6 @@
 import json
+import sys
+import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -51,11 +53,23 @@ def make_handler(default_project):
 
 
 def serve(project, port=8787):
-    httpd = HTTPServer(("127.0.0.1", port), make_handler(project))
+    try:
+        httpd = HTTPServer(("127.0.0.1", port), make_handler(project))
+    except OSError as e:
+        print(f"orch serve: cannot bind 127.0.0.1:{port}: {e}",
+              file=sys.stderr)
+        raise
     print(f"orch dashboard: http://127.0.0.1:{port}/  (project: {project})")
     print("Ctrl+C to stop.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped.")
+    except Exception:
+        # Never die silently: surface the traceback so a dead dashboard is
+        # diagnosable even when launched in the background.
+        print("orch serve: server crashed:", file=sys.stderr)
+        traceback.print_exc()
+        raise
+    finally:
         httpd.server_close()

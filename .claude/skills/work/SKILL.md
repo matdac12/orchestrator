@@ -22,7 +22,15 @@ project you serve (the human tells you, or it is already exported). All commands
    - **`queued`** → `orch claim --agent <AGENT> --json` to take it (→ `discussing`).
      Then:
      - `orch notify --msg "Agent <AGENT>: <title> — <context>" --title "Come discuss"`
-     - Post the signal: `orch post --agent <AGENT> --kind needs_discussion --msg "claimed, awaiting brainstorm"` (this specific kind has no /report alias; use it as-is)
+     - Post the signal: `orch post --agent <AGENT> --kind needs_discussion --msg "claimed, awaiting brainstorm"` (this specific kind has no /report alias; use it as-is). This raises the `needs_human` flag so the human's `orch status` shows you under "WAITING ON YOU".
+     - **Investigation-first for dated/old issues.** If the issue is not freshly
+       written (it references work that may already be underway or shipped — drift
+       risk), do NOT start brainstorming a build. First run **PHASE 1 = gap-analysis**:
+       read the current code vs the issue and report what is already done, partial, or
+       missing — write NO code. Then **PHASE 2 = decide with the human** what (if
+       anything) still needs building, and only then proceed to the brainstorm. If
+       PHASE 1 shows the issue is already satisfied, say so and propose closing it
+       rather than inventing work.
      - Brainstorm WITH the human: invoke `superpowers:brainstorming`, using the
        task's `context` as the starting brief, through to `superpowers:writing-plans`.
      - When the plan file exists: `orch task update --task <id> --plan <plan_path>`.

@@ -43,6 +43,42 @@ class ServerTest(unittest.TestCase):
                     "blocked", "done", "merged"):
             self.assertIn("." + cls, html)
 
+    def test_index_renders_waiting_and_health(self):
+        html, _ = server.render_index("demo")
+        self.assertIn("waiting", html)
+        self.assertIn("health", html)
+        self.assertIn("DISCONNECTED", html)
+
+
+class ServeProjectResolveTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = os.path.join(self.tmp, "state.db")
+        self.conn = db.connect(self.path)
+
+    class _Args:
+        project = None
+
+    def test_defaults_to_single_project(self):
+        from orch import cli
+        db.create_project(self.conn, "solo")
+        os.environ.pop("ORCH_PROJECT", None)
+        self.assertEqual(cli._serve_project(self.conn, self._Args()), "solo")
+
+    def test_no_projects_raises(self):
+        from orch import cli
+        os.environ.pop("ORCH_PROJECT", None)
+        with self.assertRaises(db.NotFound):
+            cli._serve_project(self.conn, self._Args())
+
+    def test_multiple_projects_requires_flag(self):
+        from orch import cli
+        db.create_project(self.conn, "a")
+        db.create_project(self.conn, "b")
+        os.environ.pop("ORCH_PROJECT", None)
+        with self.assertRaises(db.Ambiguous):
+            cli._serve_project(self.conn, self._Args())
+
 
 if __name__ == "__main__":
     unittest.main()

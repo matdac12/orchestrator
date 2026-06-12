@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     worktree   TEXT,
     context    TEXT,
     plan_path  TEXT,
+    needs_human         INTEGER NOT NULL DEFAULT 0,
+    needs_human_reason  TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -42,6 +44,11 @@ ACTIVE_STATUSES = ("queued", "discussing", "executing", "blocked")
 TASK_STATUSES = ("queued", "discussing", "executing", "blocked",
                  "done", "merged")
 
+# Event kinds that flag a task as waiting on the human, and the status
+# transitions that mean the human is no longer the bottleneck (clear the flag).
+RAISE_HUMAN_KINDS = ("needs_discussion", "blocker", "needs_human")
+CLEAR_HUMAN_STATUSES = ("executing", "done", "merged")
+
 
 def default_db_path():
     return os.environ.get("ORCH_DB") or str(DEFAULT_DB)
@@ -49,6 +56,18 @@ def default_db_path():
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def _migrate(conn):
+    """Add columns introduced after the initial schema to existing DBs."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}
+    if "needs_human" not in cols:
+        conn.execute(
+            "ALTER TABLE tasks ADD COLUMN needs_human INTEGER NOT NULL "
+            "DEFAULT 0")
+    if "needs_human_reason" not in cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN needs_human_reason TEXT")
+    conn.commit()
 
 
 def with_retry(action, attempts=5, base_delay=0.05):
@@ -90,6 +109,11 @@ def get_project(conn, name):
     return conn.execute(
         "SELECT * FROM projects WHERE name = ?", (name,)
     ).fetchone()
+
+
+def list_projects(conn):
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM projects ORDER BY id")]
 
 
 def require_project(conn, name):
@@ -142,6 +166,9 @@ def update_task(conn, task_id, status=None, branch=None, issue_ref=None,
         sets.append("plan_path = ?"); params.append(plan_path)
     if context is not None:
         sets.append("context = ?"); params.append(context)
+    if status in CLEAR_HUMAN_STATUSES:
+        sets.append("needs_human = 0")
+        sets.append("needs_human_reason = NULL")
     sets.append("updated_at = ?"); params.append(now())
     params.append(task_id)
 
@@ -195,16 +222,25 @@ def post_event(conn, project, agent, kind="status", message="",
             "created_at) VALUES (?, ?, ?, ?, ?, ?)",
             (pid, task_id, agent, kind, message, ts),
         )
-        if need_task:
+        # Update the task: status/branch, plus the needs_human flag which is
+        # raised by signalling kinds and cleared when work resumes.
+        if task_id is not None:
             sets, params = [], []
             if status is not None:
                 sets.append("status = ?"); params.append(status)
             if branch is not None:
                 sets.append("branch = ?"); params.append(branch)
-            sets.append("updated_at = ?"); params.append(ts)
-            params.append(task_id)
-            conn.execute(
-                f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
+            if kind in RAISE_HUMAN_KINDS:
+                sets.append("needs_human = 1")
+                sets.append("needs_human_reason = ?"); params.append(message)
+            elif status in CLEAR_HUMAN_STATUSES:
+                sets.append("needs_human = 0")
+                sets.append("needs_human_reason = NULL")
+            if sets:
+                sets.append("updated_at = ?"); params.append(ts)
+                params.append(task_id)
+                conn.execute(
+                    f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
         conn.commit()
         return cur.lastrowid
 
@@ -241,11 +277,18 @@ def get_state(conn, project, events_limit=50):
             "last_event": last_event,
         })
 
+    waiting = [
+        {"agent": t["agent"], "task_id": t["id"], "title": t["title"],
+         "reason": t["needs_human_reason"]}
+        for t in tasks if t["needs_human"]
+    ]
+
     return {
         "project": dict(proj),
         "agents": agents,
         "tasks": tasks,
         "events": events,
+        "waiting": waiting,
     }
 
 
@@ -283,6 +326,37 @@ def claim_next(conn, project, agent):
     return with_retry(_do)
 
 
+def state_signature(conn, project):
+    """A value that changes whenever anything actionable in the project does:
+    a new event, or any task's status/branch/needs_human/timestamp."""
+    pid = require_project(conn, project)["id"]
+    last_event = conn.execute(
+        "SELECT COALESCE(MAX(id), 0) FROM events WHERE project_id = ?",
+        (pid,)).fetchone()[0]
+    tasks = conn.execute(
+        "SELECT id, status, branch, needs_human, updated_at FROM tasks "
+        "WHERE project_id = ? ORDER BY id", (pid,)).fetchall()
+    return (last_event, tuple(tuple(r) for r in tasks))
+
+
+def wait_for_change(conn, project, timeout, baseline=None, interval=2.0,
+                    sleep=time.sleep, clock=time.monotonic):
+    """Block until the project's state signature changes, or timeout (seconds)
+    elapses. Returns True on change, False on timeout. Pass `baseline` from an
+    earlier `state_signature` to catch changes that happened before the call."""
+    require_project(conn, project)
+    if baseline is None:
+        baseline = state_signature(conn, project)
+    deadline = clock() + timeout
+    while True:
+        if state_signature(conn, project) != baseline:
+            return True
+        remaining = deadline - clock()
+        if remaining <= 0:
+            return False
+        sleep(min(interval, remaining))
+
+
 def connect(db_path=None):
     path = db_path or default_db_path()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
@@ -292,4 +366,5 @@ def connect(db_path=None):
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
     conn.commit()
+    _migrate(conn)
     return conn

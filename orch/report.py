@@ -3,6 +3,11 @@ import subprocess
 from orch import db
 from orch import notify as notify_mod
 
+# Auto-detection must never record one of these as a task's feature branch:
+# a `done` reported from a window sitting on main would otherwise clobber the
+# pre-assigned feature branch. An explicit --branch is always honored.
+DEFAULT_BRANCH_NAMES = {"main", "master"}
+
 
 def current_branch(cwd=None):
     try:
@@ -24,7 +29,9 @@ def report(conn, project, agent, status, msg="", branch=None,
 
     eff_branch = branch
     if status == "done" and eff_branch is None:
-        eff_branch = current_branch()
+        detected = current_branch()
+        if detected not in DEFAULT_BRANCH_NAMES:
+            eff_branch = detected
 
     eid = db.post_event(conn, project, agent, kind="status",
                         message=msg, status=status, branch=eff_branch)

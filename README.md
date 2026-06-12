@@ -86,15 +86,25 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 |---|---|
 | `init <name>` | register a project |
 | `task add` | create a task (`--agent --title [--context --status --issue --branch --worktree]`); default status `queued` |
-| `task update` | amend a task (`--task <id> [--status --branch --issue --plan --context]`) |
+| `task update` (alias `task amend`) | amend a live task (`--task <id> [--status --branch --issue --plan --context]`) |
 | `next --agent A [--json]` | the agent's single active task, or empty |
 | `claim --agent A [--json]` | atomically take the agent's oldest `queued` task (→ `discussing`) |
-| `report --status S [--msg --agent --branch]` | worker shortcut: post `executing\|done\|blocked\|note`; agent from `ORCH_AGENT`; `done` auto-detects branch; `blocked` pings you |
-| `post` | append an event; updates the task on `--status`/`--branch`; `--kind status\|note\|blocker\|handoff\|needs_discussion` |
-| `status [--json]` | current agent/task state + recent events |
+| `report --status S [--msg --agent --branch]` | worker shortcut: post `executing\|done\|blocked\|note`; agent from `ORCH_AGENT`; `done` auto-detects branch (never records `main`/`master`); `blocked` pings you |
+| `post` | append an event; updates the task on `--status`/`--branch`; `--kind status\|note\|blocker\|handoff\|needs_discussion\|needs_human\|warning` |
+| `status [--json]` | current agent/task state + recent events; surfaces a `WAITING ON YOU` banner |
+| `prompt --agent A \| --orchestrator` | print a self-contained, terminal-readable bootstrap prompt (repo path, identity vars, loop cmd, queued task) |
+| `wait [--timeout --interval]` | block until project state changes (new event / task transition) or timeout; exit 0 on change, 2 on timeout |
 | `log [--agent -n]` | recent event feed |
 | `notify --msg ... [--title ...]` | send a Telegram ping (dry-run if no token) |
-| `serve [--port]` | on-demand web dashboard |
+| `serve [--port]` | on-demand web dashboard (defaults to the only project if there is one) |
+
+**Waiting on the human.** Posting `needs_discussion`, `blocker`, or `needs_human`
+raises a `needs_human` flag on the task; `status` then lists those agents under
+`WAITING ON YOU: A (reason), …` (also highlighted on the dashboard, which shows a
+connected/disconnected health indicator). The flag clears automatically when the task
+moves to `executing`/`done`/`merged`. Workers post `kind=warning` when they skip or
+downgrade a step (e.g. Codex review unavailable) so the orchestrator sees it before
+merging.
 
 ## Skills (the autonomous loop)
 

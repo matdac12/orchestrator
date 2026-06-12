@@ -38,7 +38,14 @@ def cmd_task_update(conn, args):
 
 
 def _format_status(state):
-    lines = [f"project: {state['project']['name']}", "", "agents:"]
+    lines = [f"project: {state['project']['name']}", ""]
+    waiting = state.get("waiting") or []
+    if waiting:
+        parts = ", ".join(f"{w['agent']} ({w['reason']})" if w['reason']
+                          else w['agent'] for w in waiting)
+        lines.append(f"** WAITING ON YOU: {parts}")
+        lines.append("")
+    lines.append("agents:")
     for a in state["agents"]:
         ct = a["current_task"]
         title = f" — {ct['title']}" if ct else ""
@@ -124,9 +131,42 @@ def cmd_notify(conn, args):
     return 0
 
 
+def _serve_project(conn, args):
+    """Resolve the project for `serve`, defaulting to the only one if unique."""
+    import os
+    name = args.project or os.environ.get("ORCH_PROJECT")
+    if name:
+        return name
+    projs = db.list_projects(conn)
+    if len(projs) == 1:
+        return projs[0]["name"]
+    if not projs:
+        raise db.NotFound("no projects exist (run: orch init <name>)")
+    names = ", ".join(p["name"] for p in projs)
+    raise db.Ambiguous(f"multiple projects ({names}); pass --project")
+
+
 def cmd_serve(conn, args):
     from orch.server import serve
-    serve(_project(args), port=args.port)
+    serve(_serve_project(conn, args), port=args.port)
+    return 0
+
+
+def cmd_wait(conn, args):
+    changed = db.wait_for_change(conn, _project(args), args.timeout,
+                                 interval=args.interval)
+    print("changed" if changed else "timeout")
+    return 0 if changed else 2
+
+
+def cmd_prompt(conn, args):
+    from orch import prompt as prompt_mod
+    project = _project(args)
+    db.require_project(conn, project)
+    if args.orchestrator:
+        print(prompt_mod.orchestrator_prompt(conn, project))
+    else:
+        print(prompt_mod.worker_prompt(conn, project, args.agent))
     return 0
 
 
@@ -151,7 +191,7 @@ def build_parser():
     ta.add_argument("--context")
     ta.add_argument("--status", default="queued")
     ta.set_defaults(func=cmd_task_add)
-    tu = tsub.add_parser("update")
+    tu = tsub.add_parser("update", aliases=["amend"])
     tu.add_argument("--project")
     tu.add_argument("--task", type=int, required=True)
     tu.add_argument("--status")
@@ -178,7 +218,7 @@ def build_parser():
     pp.add_argument("--task", type=int)
     pp.add_argument("--kind", default="status",
                     choices=["status", "note", "blocker", "handoff",
-                             "needs_discussion"])
+                             "needs_discussion", "needs_human", "warning"])
     pp.add_argument("--status")
     pp.add_argument("--branch")
     pp.add_argument("--msg", default="")
@@ -216,10 +256,34 @@ def build_parser():
     pv.add_argument("--port", type=int, default=8787)
     pv.set_defaults(func=cmd_serve)
 
+    pw = sub.add_parser("wait")
+    pw.add_argument("--project")
+    pw.add_argument("--timeout", type=float, default=300.0)
+    pw.add_argument("--interval", type=float, default=2.0)
+    pw.set_defaults(func=cmd_wait)
+
+    pp2 = sub.add_parser("prompt")
+    pp2.add_argument("--project")
+    grp = pp2.add_mutually_exclusive_group(required=True)
+    grp.add_argument("--agent")
+    grp.add_argument("--orchestrator", action="store_true")
+    pp2.set_defaults(func=cmd_prompt)
+
     return p
 
 
+def _force_utf8():
+    """Print UTF-8 regardless of the console codepage (Windows cp1252 turns
+    arrows/em-dashes in the event feed into '?')."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass  # not a reconfigurable TextIO (e.g. a pipe wrapper in tests)
+
+
 def main(argv=None):
+    _force_utf8()
     parser = build_parser()
     args = parser.parse_args(argv)
     conn = db.connect()

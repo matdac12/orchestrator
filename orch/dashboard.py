@@ -12,16 +12,35 @@ PAGE = """<!doctype html>
  .idle{{background:#333}}
  .feed{{padding:0 16px 24px}} .ev{{padding:6px 0;border-top:1px solid #222}}
  .muted{{color:#8b949e;font-size:12px}}
+ .waiting{{margin:12px 16px 0;padding:10px 14px;border-radius:8px;
+   background:#7a1f1f;color:#fff;font-weight:600}}
+ #health{{float:right;font-weight:400;font-size:12px}}
+ .ok{{color:#3fb950}} .down{{color:#f85149}}
 </style></head><body>
-<header>orch — {project}</header>
+<header>orch — {project}<span id="health"></span></header>
+<div id="waiting"></div>
 <div id="cols" class="cols"></div>
 <div class="feed"><h3>events</h3><div id="feed"></div></div>
 <script>
+function setHealth(ok){{
+  const h = document.getElementById('health');
+  const t = new Date().toLocaleTimeString();
+  h.className = ok ? 'ok' : 'down';
+  h.textContent = ok ? ('connected ' + t) : ('DISCONNECTED since ' + t);
+}}
 async function tick(){{
-  const r = await fetch('/api/state?project={project}');
-  const s = await r.json();
+  let s;
+  try{{
+    const r = await fetch('/api/state?project={project}');
+    s = await r.json();
+    setHealth(true);
+  }}catch(e){{ setHealth(false); return; }}
   if(s.error){{document.getElementById('cols').innerHTML =
     '<div class=agent>'+s.error+'</div>';return;}}
+  const w = s.waiting || [];
+  document.getElementById('waiting').innerHTML = w.length ?
+    '<div class=waiting>WAITING ON YOU: '+w.map(x=>
+      x.agent+(x.reason?' ('+x.reason+')':'')).join(', ')+'</div>' : '';
   document.getElementById('cols').innerHTML = s.agents.map(a=>{{
     const ct = a.current_task ? a.current_task.title : '<span class=muted>no task</span>';
     const br = a.current_task && a.current_task.branch ?

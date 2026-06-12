@@ -12,6 +12,13 @@ done. Execute the steps in order; do not skip Step 1 or Step 4.
 Resolve `<path>` = the orchestrator repo path. Your identity is `ORCH_AGENT`, project
 `ORCH_PROJECT`.
 
+**Never degrade silently.** If you skip or downgrade any step below (Codex
+unavailable, token expired, review run at a lower effort than the change deserved,
+tests not run), post a warning event so the orchestrator sees it before merging
+instead of discovering it in your report:
+
+`python <path>/orch.py post --agent $ORCH_AGENT --kind warning --msg "<step> skipped: <why>"`
+
 ## Step 1 — Code Review
 
 Run `/code-review` on all changed code at an honestly chosen effort level:
@@ -33,7 +40,9 @@ If the `codex` plugin is available, get a second opinion:
 3. Present your analysis (agree/disagree + why) and discuss with the user.
 4. Apply agreed changes, then re-run `/code-review` if code was modified.
 
-If the `codex` plugin is not installed, or the user says "skip codex," go to Step 3.
+If the `codex` plugin is not installed, the token expired mid-review, or the user
+says "skip codex," post the warning event from the header (`<step> skipped: <why>`)
+and go to Step 3.
 
 ## Step 3 — Commit
 

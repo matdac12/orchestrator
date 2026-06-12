@@ -183,6 +183,107 @@ class PostTest(unittest.TestCase):
             db.post_event(self.conn, "demo", "B", status="done")
 
 
+class NeedsHumanTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+
+    def _task(self, tid):
+        return self.conn.execute(
+            "SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
+
+    def test_schema_has_needs_human_columns(self):
+        cols = {r[1] for r in self.conn.execute("PRAGMA table_info(tasks)")}
+        self.assertTrue({"needs_human", "needs_human_reason"}.issubset(cols))
+
+    def test_needs_discussion_raises_flag_with_reason(self):
+        tid = db.add_task(self.conn, "demo", "A", "x", status="discussing")
+        db.post_event(self.conn, "demo", "A", kind="needs_discussion",
+                      message="come brainstorm")
+        row = self._task(tid)
+        self.assertEqual(row["needs_human"], 1)
+        self.assertEqual(row["needs_human_reason"], "come brainstorm")
+
+    def test_blocker_raises_flag(self):
+        tid = db.add_task(self.conn, "demo", "A", "x", status="executing")
+        db.post_event(self.conn, "demo", "A", kind="blocker",
+                      message="need api key")
+        self.assertEqual(self._task(tid)["needs_human"], 1)
+
+    def test_executing_clears_flag(self):
+        tid = db.add_task(self.conn, "demo", "A", "x", status="discussing")
+        db.post_event(self.conn, "demo", "A", kind="needs_discussion",
+                      message="talk")
+        self.assertEqual(self._task(tid)["needs_human"], 1)
+        db.post_event(self.conn, "demo", "A", status="executing", message="go")
+        row = self._task(tid)
+        self.assertEqual(row["needs_human"], 0)
+        self.assertIsNone(row["needs_human_reason"])
+
+    def test_get_state_exposes_waiting(self):
+        db.add_task(self.conn, "demo", "A", "login", status="discussing")
+        db.add_task(self.conn, "demo", "C", "search", status="executing")
+        db.post_event(self.conn, "demo", "A", kind="needs_discussion",
+                      message="review spec")
+        db.post_event(self.conn, "demo", "C", kind="blocker",
+                      message="which file?")
+        waiting = db.get_state(self.conn, "demo")["waiting"]
+        by_agent = {w["agent"]: w for w in waiting}
+        self.assertEqual(set(by_agent), {"A", "C"})
+        self.assertEqual(by_agent["A"]["reason"], "review spec")
+        self.assertEqual(by_agent["C"]["reason"], "which file?")
+
+    def test_migrate_adds_columns_to_legacy_table(self):
+        path = os.path.join(self.tmp, "legacy.db")
+        raw = sqlite3.connect(path)
+        raw.executescript(
+            "CREATE TABLE tasks (id INTEGER PRIMARY KEY, agent TEXT, "
+            "status TEXT, updated_at TEXT);")
+        raw.commit()
+        db._migrate(raw)
+        cols = {r[1] for r in raw.execute("PRAGMA table_info(tasks)")}
+        self.assertTrue({"needs_human", "needs_human_reason"}.issubset(cols))
+        # idempotent
+        db._migrate(raw)
+        raw.close()
+
+
+class WaitTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+
+    def test_signature_changes_on_new_event(self):
+        db.add_task(self.conn, "demo", "A", "x")
+        sig1 = db.state_signature(self.conn, "demo")
+        db.post_event(self.conn, "demo", "A", message="tick")
+        self.assertNotEqual(sig1, db.state_signature(self.conn, "demo"))
+
+    def test_signature_changes_on_task_status(self):
+        tid = db.add_task(self.conn, "demo", "A", "x")
+        sig1 = db.state_signature(self.conn, "demo")
+        db.update_task(self.conn, tid, status="merged")
+        self.assertNotEqual(sig1, db.state_signature(self.conn, "demo"))
+
+    def test_wait_returns_true_when_baseline_is_stale(self):
+        db.add_task(self.conn, "demo", "A", "x")
+        baseline = db.state_signature(self.conn, "demo")
+        db.post_event(self.conn, "demo", "A", message="changed")
+        # No sleeping needed: the change already happened vs the baseline.
+        self.assertTrue(db.wait_for_change(
+            self.conn, "demo", timeout=5, baseline=baseline,
+            sleep=lambda s: None))
+
+    def test_wait_times_out_without_change(self):
+        db.add_task(self.conn, "demo", "A", "x")
+        ticks = iter([0.0, 0.0, 1.0])  # start, first check, past deadline
+        self.assertFalse(db.wait_for_change(
+            self.conn, "demo", timeout=0.5, interval=0.1,
+            sleep=lambda s: None, clock=lambda: next(ticks)))
+
+
 class NextTaskTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

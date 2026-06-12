@@ -200,6 +200,64 @@ class CLITest(unittest.TestCase):
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("agent", out.stderr.lower())
 
+    def test_wait_times_out_with_exit_code(self):
+        run(["init", "demo"], self.db)
+        out = run(["wait", "--project", "demo", "--timeout", "0.2",
+                   "--interval", "0.1"], self.db)
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("timeout", out.stdout)
+
+    def test_task_amend_updates_context_on_live_task(self):
+        run(["init", "demo"], self.db)
+        add = run(["task", "add", "--project", "demo", "--agent", "A",
+                   "--title", "X", "--status", "executing",
+                   "--context", "original"], self.db)
+        tid = int(add.stdout.strip().split()[-1])
+        out = run(["task", "amend", "--project", "demo", "--task", str(tid),
+                   "--context", "reduced scope"], self.db)
+        self.assertEqual(out.returncode, 0)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["context"], "reduced scope")
+        self.assertEqual(state["tasks"][0]["status"], "executing")
+
+    def test_status_banner_shows_waiting_agent(self):
+        run(["init", "demo"], self.db)
+        run(["task", "add", "--project", "demo", "--agent", "A",
+             "--title", "X", "--status", "discussing"], self.db)
+        run(["post", "--project", "demo", "--agent", "A",
+             "--kind", "needs_discussion", "--msg", "review spec"], self.db)
+        out = run(["status", "--project", "demo"], self.db)
+        self.assertIn("WAITING ON YOU", out.stdout)
+        self.assertIn("A (review spec)", out.stdout)
+
+    def test_prompt_worker_is_self_contained(self):
+        run(["init", "demo"], self.db)
+        run(["task", "add", "--project", "demo", "--agent", "A",
+             "--title", "build login", "--issue", "LIN-9",
+             "--context", "start with the API"], self.db)
+        out = run(["prompt", "--project", "demo", "--agent", "A"], self.db)
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("ORCH_PROJECT=demo", out.stdout)
+        self.assertIn("ORCH_AGENT=A", out.stdout)
+        self.assertIn("/loop /work A", out.stdout)
+        self.assertIn("build login", out.stdout)
+        self.assertIn("LIN-9", out.stdout)
+        self.assertIn("start with the API", out.stdout)
+        self.assertIn("orch.py", out.stdout)
+
+    def test_prompt_orchestrator(self):
+        run(["init", "demo"], self.db)
+        out = run(["prompt", "--project", "demo", "--orchestrator"], self.db)
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("/loop /orchestrate", out.stdout)
+        self.assertIn("ORCH_PROJECT=demo", out.stdout)
+
+    def test_prompt_requires_agent_or_orchestrator(self):
+        run(["init", "demo"], self.db)
+        out = run(["prompt", "--project", "demo"], self.db)
+        self.assertNotEqual(out.returncode, 0)
+
     def test_notify_dry_run_succeeds(self):
         # No token configured -> dry-run, prints message, exit 0
         env = dict(os.environ, ORCH_DB=self.db)

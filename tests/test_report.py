@@ -55,6 +55,34 @@ class ReportTest(unittest.TestCase):
         b = report.current_branch()
         self.assertTrue(b is None or isinstance(b, str))
 
+    def test_done_autodetect_main_does_not_overwrite_feature_branch(self):
+        # Pre-assigned feature branch (the kickoff convention) must survive a
+        # `done` reported from a window that happens to sit on main.
+        db.update_task(self.conn, self.tid, branch="feat/x")
+        orig = report.current_branch
+        report.current_branch = lambda cwd=None: "main"
+        try:
+            report.report(self.conn, "demo", "A", "done")
+        finally:
+            report.current_branch = orig
+        self.assertEqual(self._task()["status"], "done")
+        self.assertEqual(self._task()["branch"], "feat/x")
+
+    def test_done_autodetect_main_leaves_branch_unset(self):
+        orig = report.current_branch
+        report.current_branch = lambda cwd=None: "master"
+        try:
+            report.report(self.conn, "demo", "A", "done")
+        finally:
+            report.current_branch = orig
+        self.assertEqual(self._task()["status"], "done")
+        self.assertIsNone(self._task()["branch"])
+
+    def test_done_explicit_main_branch_is_honored(self):
+        # An explicit --branch main is a deliberate choice; respect it.
+        report.report(self.conn, "demo", "A", "done", branch="main")
+        self.assertEqual(self._task()["branch"], "main")
+
 
 if __name__ == "__main__":
     unittest.main()
