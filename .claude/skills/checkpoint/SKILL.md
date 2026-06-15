@@ -36,10 +36,11 @@ note what changed.
 
 ## Step 2 — Codex Review (optional)
 
-If the `codex` plugin is available, get a second opinion:
-1. Invoke `/codex:rescue` (review-only): summarize what changed, point at the
-   diff/files, ask for feedback on correctness/design/risk. Be explicit it is a review
-   pass, not an edit pass.
+If the `codex` plugin is available, get a second opinion — follow the `/ask-codex`
+skill for the exact mechanics:
+1. Run `/codex:review` on your branch's changes (review-only; use
+   `/codex:adversarial-review` instead if you want the design/approach challenged).
+   Do NOT use `/codex:rescue` here — that can edit code; this is a review pass.
 2. Reason critically about the output — do not accept it at face value.
 3. Present your analysis (agree/disagree + why) and discuss with the user.
 4. Apply agreed changes, then re-run `/code-review` if code was modified.
