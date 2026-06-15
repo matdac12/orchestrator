@@ -8,11 +8,15 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def run(args, db_path):
+def run(args, db_path, cwd=None):
     env = dict(os.environ, ORCH_DB=db_path)
+    # Strip ORCH_PROJECT/ORCH_AGENT so they never leak in from the runner's
+    # shell and mask directory/flag resolution under test.
+    env.pop("ORCH_PROJECT", None)
+    env.pop("ORCH_AGENT", None)
     return subprocess.run(
         [sys.executable, os.path.join(ROOT, "orch.py"), *args],
-        capture_output=True, text=True, env=env)
+        capture_output=True, text=True, env=env, cwd=cwd)
 
 
 class CLITest(unittest.TestCase):
@@ -231,6 +235,24 @@ class CLITest(unittest.TestCase):
         self.assertIn("WAITING ON YOU", out.stdout)
         self.assertIn("A (review spec)", out.stdout)
 
+    def test_link_resolves_project_from_directory(self):
+        # Two projects exist (multi-project DB), so bare resolution is ambiguous
+        run(["init", "alpha"], self.db)
+        run(["init", "beta"], self.db)
+        ambiguous = run(["status"], self.db, cwd=self.tmp)
+        self.assertNotEqual(ambiguous.returncode, 0)
+        # Link beta to this directory, then a bare status here resolves to beta
+        linked = run(["link", "beta"], self.db, cwd=self.tmp)
+        self.assertEqual(linked.returncode, 0)
+        out = run(["status", "--json"], self.db, cwd=self.tmp)
+        self.assertEqual(out.returncode, 0)
+        self.assertEqual(json.loads(out.stdout)["project"]["name"], "beta")
+
+    def test_link_unknown_project_fails(self):
+        run(["init", "alpha"], self.db)
+        out = run(["link", "ghost"], self.db, cwd=self.tmp)
+        self.assertNotEqual(out.returncode, 0)
+
     def test_prompt_worker_is_self_contained(self):
         run(["init", "demo"], self.db)
         run(["task", "add", "--project", "demo", "--agent", "A",
@@ -238,8 +260,7 @@ class CLITest(unittest.TestCase):
              "--context", "start with the API"], self.db)
         out = run(["prompt", "--project", "demo", "--agent", "A"], self.db)
         self.assertEqual(out.returncode, 0)
-        self.assertIn("ORCH_PROJECT=demo", out.stdout)
-        self.assertIn("ORCH_AGENT=A", out.stdout)
+        self.assertIn("link demo", out.stdout)
         self.assertIn("/loop /work A", out.stdout)
         self.assertIn("build login", out.stdout)
         self.assertIn("LIN-9", out.stdout)
@@ -251,7 +272,7 @@ class CLITest(unittest.TestCase):
         out = run(["prompt", "--project", "demo", "--orchestrator"], self.db)
         self.assertEqual(out.returncode, 0)
         self.assertIn("/loop /orchestrate", out.stdout)
-        self.assertIn("ORCH_PROJECT=demo", out.stdout)
+        self.assertIn("link demo", out.stdout)
 
     def test_prompt_requires_agent_or_orchestrator(self):
         run(["init", "demo"], self.db)

@@ -63,13 +63,13 @@ class ServeProjectResolveTest(unittest.TestCase):
         from orch import cli
         db.create_project(self.conn, "solo")
         os.environ.pop("ORCH_PROJECT", None)
-        self.assertEqual(cli._serve_project(self.conn, self._Args()), "solo")
+        self.assertEqual(cli._project(self.conn, self._Args()), "solo")
 
     def test_no_projects_raises(self):
         from orch import cli
         os.environ.pop("ORCH_PROJECT", None)
         with self.assertRaises(db.NotFound):
-            cli._serve_project(self.conn, self._Args())
+            cli._project(self.conn, self._Args())
 
     def test_multiple_projects_requires_flag(self):
         from orch import cli
@@ -77,7 +77,7 @@ class ServeProjectResolveTest(unittest.TestCase):
         db.create_project(self.conn, "b")
         os.environ.pop("ORCH_PROJECT", None)
         with self.assertRaises(db.Ambiguous):
-            cli._serve_project(self.conn, self._Args())
+            cli._project(self.conn, self._Args())
 
 
 if __name__ == "__main__":

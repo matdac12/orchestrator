@@ -67,6 +67,13 @@ def _migrate(conn):
             "DEFAULT 0")
     if "needs_human_reason" not in cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN needs_human_reason TEXT")
+    pcols = {r[1] for r in conn.execute("PRAGMA table_info(projects)")}
+    if pcols and "path" not in pcols:
+        # Filesystem root bound to the project via `orch link`, so the CLI can
+        # infer the project from the working directory (multi-project safe).
+        # `pcols` is empty only when the projects table doesn't exist yet
+        # (e.g. an isolated migration test); skip then.
+        conn.execute("ALTER TABLE projects ADD COLUMN path TEXT")
     conn.commit()
 
 
@@ -121,6 +128,40 @@ def require_project(conn, name):
     if row is None:
         raise NotFound(f"project '{name}' not found (run: orch init {name})")
     return row
+
+
+def _norm_path(path):
+    return os.path.normcase(os.path.abspath(path))
+
+
+def set_project_path(conn, name, path):
+    """Bind a project to a filesystem root (normalized absolute path)."""
+    require_project(conn, name)
+    norm = _norm_path(path)
+
+    def _do():
+        conn.execute("UPDATE projects SET path = ? WHERE name = ?",
+                     (norm, name))
+        conn.commit()
+
+    with_retry(_do)
+    return norm
+
+
+def find_project_by_path(conn, cwd):
+    """The project whose linked path is the longest prefix of `cwd`, or None.
+    A worktree under a linked project root resolves to that project."""
+    target = _norm_path(cwd)
+    best = None
+    for r in conn.execute(
+            "SELECT name, path FROM projects WHERE path IS NOT NULL"):
+        p = r["path"]
+        if not p:
+            continue
+        if target == p or target.startswith(p + os.sep):
+            if best is None or len(p) > len(best[1]):
+                best = (r["name"], p)
+    return best[0] if best else None
 
 
 def add_task(conn, project, agent, title, issue_ref=None, branch=None,

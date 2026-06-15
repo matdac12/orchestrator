@@ -29,6 +29,47 @@ class DBSetupTest(unittest.TestCase):
         self.assertTrue({"context", "plan_path"}.issubset(cols))
 
 
+class ProjectPathTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+
+    def test_link_and_resolve_by_path(self):
+        db.create_project(self.conn, "alpha")
+        root = os.path.join(self.tmp, "alpha-checkout")
+        db.set_project_path(self.conn, "alpha", root)
+        # exact dir and a nested worktree both resolve to the project
+        self.assertEqual(db.find_project_by_path(self.conn, root), "alpha")
+        nested = os.path.join(root, ".claude", "worktrees", "agent-x")
+        self.assertEqual(db.find_project_by_path(self.conn, nested), "alpha")
+
+    def test_unlinked_dir_resolves_to_none(self):
+        db.create_project(self.conn, "alpha")
+        self.assertIsNone(
+            db.find_project_by_path(self.conn, os.path.join(self.tmp, "x")))
+
+    def test_longest_prefix_wins(self):
+        db.create_project(self.conn, "outer")
+        db.create_project(self.conn, "inner")
+        outer = os.path.join(self.tmp, "repo")
+        inner = os.path.join(outer, "sub")
+        db.set_project_path(self.conn, "outer", outer)
+        db.set_project_path(self.conn, "inner", inner)
+        self.assertEqual(
+            db.find_project_by_path(self.conn, os.path.join(inner, "deep")),
+            "inner")
+        self.assertEqual(
+            db.find_project_by_path(self.conn, os.path.join(outer, "other")),
+            "outer")
+
+    def test_sibling_prefix_not_matched(self):
+        # /repo must not match /repo-two (guard the startswith boundary)
+        db.create_project(self.conn, "repo")
+        db.set_project_path(self.conn, "repo", os.path.join(self.tmp, "repo"))
+        self.assertIsNone(db.find_project_by_path(
+            self.conn, os.path.join(self.tmp, "repo-two")))
+
+
 class RetryTest(unittest.TestCase):
     def test_with_retry_recovers_from_locked(self):
         calls = {"n": 0}

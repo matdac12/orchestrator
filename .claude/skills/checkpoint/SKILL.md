@@ -11,17 +11,17 @@ done. Execute the steps in order; do not skip Step 1 or Step 4.
 
 Resolve `<path>` = the orchestrator repo path
 (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project; you run
-inside the target project but `orch.py` lives in the orchestrator repo). Your identity
-is `ORCH_AGENT`, project `ORCH_PROJECT` — both exported in the terminal before `claude`
-launched (they do not persist if set from inside the session). If a command reports
-`no agent given`, that is why.
+inside the target project but `orch.py` lives in the orchestrator repo). Pass your
+worker letter as `--agent <AGENT>` (the letter from your `/work` loop); the project
+resolves from your linked directory — no env vars needed. (If a command reports `can't
+infer the project`, run `python <path>/orch.py link <project>` once in this checkout.)
 
 **Never degrade silently.** If you skip or downgrade any step below (Codex
 unavailable, token expired, review run at a lower effort than the change deserved,
 tests not run), post a warning event so the orchestrator sees it before merging
 instead of discovering it in your report:
 
-`python <path>/orch.py post --agent $ORCH_AGENT --kind warning --msg "<step> skipped: <why>"`
+`python <path>/orch.py post --agent <AGENT> --kind warning --msg "<step> skipped: <why>"`
 
 ## Step 1 — Code Review
 
@@ -62,7 +62,7 @@ and go to Step 3.
 
 Report completion to the orchestrator (auto-detects the branch):
 
-`python <path>/orch.py report --status done --msg "ready for review"`
+`python <path>/orch.py report --agent <AGENT> --status done --msg "ready for review"`
 
 Do NOT update Linear — in the orchestrator system the orchestrator owns Linear updates
 when it merges your branch. Your job ends at a committed branch + a `done` report.

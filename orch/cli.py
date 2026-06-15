@@ -1,16 +1,30 @@
 import argparse
 import json
+import os
 import sys
 
 from orch import db
 
 
-def _project(args):
-    import os
+def _project(conn, args):
+    """Resolve the project: explicit flag, env var, the project linked to the
+    current directory (via `orch link`), or the sole project if only one
+    exists. Multi-project safe — agents run inside their target checkout."""
     name = args.project or os.environ.get("ORCH_PROJECT")
-    if not name:
-        raise db.NotFound("no project given (use --project or ORCH_PROJECT)")
-    return name
+    if name:
+        return name
+    name = db.find_project_by_path(conn, os.getcwd())
+    if name:
+        return name
+    projs = db.list_projects(conn)
+    if len(projs) == 1:
+        return projs[0]["name"]
+    if not projs:
+        raise db.NotFound("no projects exist (run: orch init <name>)")
+    names = ", ".join(p["name"] for p in projs)
+    raise db.Ambiguous(
+        f"can't infer the project from this directory ({names}); run "
+        f"`orch link <name>` here, or pass --project / set ORCH_PROJECT")
 
 
 def cmd_init(conn, args):
@@ -21,7 +35,7 @@ def cmd_init(conn, args):
 
 
 def cmd_task_add(conn, args):
-    tid = db.add_task(conn, _project(args), args.agent, args.title,
+    tid = db.add_task(conn, _project(conn, args), args.agent, args.title,
                       issue_ref=args.issue, branch=args.branch,
                       worktree=args.worktree, context=args.context,
                       status=args.status)
@@ -59,7 +73,7 @@ def _format_status(state):
 
 
 def cmd_status(conn, args):
-    state = db.get_state(conn, _project(args))
+    state = db.get_state(conn, _project(conn, args))
     if args.json:
         print(json.dumps(state, indent=2))
     else:
@@ -68,7 +82,7 @@ def cmd_status(conn, args):
 
 
 def cmd_log(conn, args):
-    state = db.get_state(conn, _project(args), events_limit=args.n)
+    state = db.get_state(conn, _project(conn, args), events_limit=args.n)
     for e in state["events"]:
         if args.agent and e["agent"] != args.agent:
             continue
@@ -77,7 +91,7 @@ def cmd_log(conn, args):
 
 
 def cmd_next(conn, args):
-    task = db.next_task(conn, _project(args), args.agent)
+    task = db.next_task(conn, _project(conn, args), args.agent)
     if task is None:
         if not args.json:
             print("no task")
@@ -90,7 +104,7 @@ def cmd_next(conn, args):
 
 
 def cmd_claim(conn, args):
-    task = db.claim_next(conn, _project(args), args.agent)
+    task = db.claim_next(conn, _project(conn, args), args.agent)
     if task is None:
         if not args.json:
             print("no queued task")
@@ -103,7 +117,7 @@ def cmd_claim(conn, args):
 
 
 def cmd_post(conn, args):
-    eid = db.post_event(conn, _project(args), args.agent,
+    eid = db.post_event(conn, _project(conn, args), args.agent,
                         kind=args.kind, message=args.msg,
                         task_id=args.task, status=args.status,
                         branch=args.branch)
@@ -111,15 +125,21 @@ def cmd_post(conn, args):
     return 0
 
 
+def cmd_link(conn, args):
+    db.require_project(conn, args.name)
+    path = db.set_project_path(conn, args.name, os.getcwd())
+    print(f"linked '{args.name}' to {path}")
+    return 0
+
+
 def cmd_report(conn, args):
-    import os
     from orch import report as report_mod
     agent = args.agent or os.environ.get("ORCH_AGENT")
     if not agent:
         print("error: no agent given (use --agent or ORCH_AGENT)",
               file=sys.stderr)
         return 1
-    report_mod.report(conn, _project(args), agent, args.status,
+    report_mod.report(conn, _project(conn, args), agent, args.status,
                       msg=args.msg, branch=args.branch)
     print("reported")
     return 0
@@ -131,29 +151,14 @@ def cmd_notify(conn, args):
     return 0
 
 
-def _serve_project(conn, args):
-    """Resolve the project for `serve`, defaulting to the only one if unique."""
-    import os
-    name = args.project or os.environ.get("ORCH_PROJECT")
-    if name:
-        return name
-    projs = db.list_projects(conn)
-    if len(projs) == 1:
-        return projs[0]["name"]
-    if not projs:
-        raise db.NotFound("no projects exist (run: orch init <name>)")
-    names = ", ".join(p["name"] for p in projs)
-    raise db.Ambiguous(f"multiple projects ({names}); pass --project")
-
-
 def cmd_serve(conn, args):
     from orch.server import serve
-    serve(_serve_project(conn, args), port=args.port)
+    serve(_project(conn, args), port=args.port)
     return 0
 
 
 def cmd_wait(conn, args):
-    changed = db.wait_for_change(conn, _project(args), args.timeout,
+    changed = db.wait_for_change(conn, _project(conn, args), args.timeout,
                                  interval=args.interval)
     print("changed" if changed else "timeout")
     return 0 if changed else 2
@@ -161,7 +166,7 @@ def cmd_wait(conn, args):
 
 def cmd_prompt(conn, args):
     from orch import prompt as prompt_mod
-    project = _project(args)
+    project = _project(conn, args)
     db.require_project(conn, project)
     if args.orchestrator:
         print(prompt_mod.orchestrator_prompt(conn, project))
@@ -178,6 +183,10 @@ def build_parser():
     pi.add_argument("name")
     pi.add_argument("--notes")
     pi.set_defaults(func=cmd_init)
+
+    pk = sub.add_parser("link")
+    pk.add_argument("name")
+    pk.set_defaults(func=cmd_link)
 
     pt = sub.add_parser("task")
     tsub = pt.add_subparsers(dest="task_cmd", required=True)

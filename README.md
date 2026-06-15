@@ -56,22 +56,25 @@ queued → discussing → executing → done → merged     (+ blocked)
 1. **Install the skills at user level** so worker windows in any project can see them —
    link this repo's `.claude/skills/*` into `~/.claude/skills/`
    (see [Installing skills](#installing-skills-for-worker-windows)).
-2. **Register the project once:** `python orch.py init myproject`.
-3. **Each window is opened the same way — set up the shell, THEN launch Claude Code from
-   it.** The env vars must be inherited by the `claude` process; they do *not* persist
-   if exported from inside the session. `orch prompt` prints the exact, copy-pasteable
-   setup for a window (repo path, the `cd`/`export` lines, the loop command, and the
-   window's current task):
+2. **Register the project and bind it to its directory, once:**
 
    ```bash
-   python orch.py prompt --orchestrator --project myproject   # the 1 orchestrator window
-   python orch.py prompt --agent A --project myproject         # each worker window (A/B/C)
+   python orch.py init myproject
+   cd /path/to/myproject/checkout && python /path/to/orchestrator/orch.py link myproject
    ```
 
-   For every window: `cd` into the **target project's** checkout, `export ORCH_PROJECT`
-   (and `ORCH_AGENT` for workers), launch `claude` from that shell, then type the loop
-   command (`/loop /orchestrate` or `/loop /work A`). The orchestrator window queues 2-3
-   parallel kickoffs with you on start.
+   `link` records the checkout's path, so from then on every orch command run inside
+   that directory (or any worktree under it) infers the project automatically — **no
+   env vars, no relaunch.** This is what makes the multi-project, multi-window setup
+   painless. `orch prompt --agent A` / `--orchestrator` prints the exact per-window
+   setup if you want it.
+3. **Open each window inside its checkout and start the loop** — nothing else to wire:
+   - orchestrator window (run inside the project's main checkout): `/loop /orchestrate`
+   - each worker window (A/B/C): `/loop /work A`
+
+   The orchestrator window queues 2-3 parallel kickoffs with you on start. Workers pass
+   `--agent A` themselves; the project resolves from the linked directory. (`ORCH_PROJECT`
+   still works as an override if you ever need it.)
 4. **Watch progress** with `orch serve` (dashboard) or via Telegram pings.
 
 ## Requirements
@@ -96,6 +99,7 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 | command | purpose |
 |---|---|
 | `init <name>` | register a project |
+| `link <name>` | bind the current directory to a project, so commands run here (and in worktrees under it) infer it automatically — no `--project`/env needed |
 | `task add` | create a task (`--agent --title [--context --status --issue --branch --worktree]`); default status `queued` |
 | `task update` (alias `task amend`) | amend a live task (`--task <id> [--status --branch --issue --plan --context]`) |
 | `next --agent A [--json]` | the agent's single active task, or empty |
@@ -161,13 +165,11 @@ Verify the link is live (not a stale copy) by diffing a skill against this repo;
 must be identical. Note: Git Bash `[ -L ]`/`ls -la` does **not** flag junctions as
 symlinks — use `diff` to check, not `ls`.
 
-Identity vars are set **per window, in the terminal before `claude` is launched** (they
-do not persist if exported from inside the session):
-
-```bash
-export ORCH_PROJECT=myproject
-export ORCH_AGENT=A      # workers only; omit for the orchestrator window
-```
+No per-window environment setup is needed: the project resolves from the linked
+directory (`orch link myproject`, see [Getting started](#getting-started)) and workers
+pass `--agent A` themselves. If you prefer env vars, `ORCH_PROJECT` (and `ORCH_AGENT`)
+still override resolution when set — but they must be exported **before** `claude`
+launches, since env vars set from inside a session do not persist between commands.
 
 ## Telegram notifications
 

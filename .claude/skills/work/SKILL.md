@@ -14,21 +14,20 @@ Resolve `<path>` = the orchestrator repo path once
 inside the target project but `orch.py` lives in the orchestrator repo). All commands:
 `python <path>/orch.py <cmd>`.
 
-## Preflight (run once, at the start — do NOT skip)
+Your identity is `<AGENT>` (the skill argument) — pass it as `--agent <AGENT>` on every
+command (this skill already does). The project is inferred from your working directory
+once it's linked, so you need NO env vars and NO relaunch.
 
-Your identity and project come from `ORCH_AGENT`/`ORCH_PROJECT`, which the human must
-have exported **in the terminal before launching `claude`**. You CANNOT set them from
-inside the session — env vars do not persist between commands here. So:
+## Preflight (run once, at the start — do NOT skip)
 
 1. **Confirm the directory.** Run `pwd` (and `git remote -v`). You must be inside the
    target project's checkout (where the code you build lives), NOT the orchestrator
    repo. If it looks wrong, stop and tell the human.
-2. **Confirm identity is wired.** Run `python <path>/orch.py next --agent <AGENT> --json`.
-   If it errors with `no project given`/`no agent given`, the env vars are missing →
-   **stop**. Tell the human: "export `ORCH_PROJECT` and `ORCH_AGENT` in this terminal,
-   then relaunch `claude` from the same shell" (or run `python <path>/orch.py prompt
-   --agent <AGENT> --project <name>` for the exact setup). Do not try to `export` them
-   yourself — it will not stick.
+2. **Confirm the project resolves.** Run `python <path>/orch.py next --agent <AGENT> --json`.
+   If it errors with `can't infer the project from this directory`, this checkout isn't
+   linked yet → run `python <path>/orch.py link <project>` once here (ask the human the
+   project name if unsure), then retry. (`ORCH_PROJECT` still works as an override if
+   you ever need it.)
 
 ## One cycle
 
@@ -83,7 +82,6 @@ If you cannot proceed at any point:
 - The human is only present for the brainstorm/plan-approval. Everything after
   approval is autonomous.
 - Report via `/report` (short, frequent) so the orchestrator and dashboard stay live.
-- `ORCH_AGENT` and `ORCH_PROJECT` must be exported in the terminal **before** `claude`
-  was launched (they do not persist if set from inside the session), so `/report` and
-  `/checkpoint` know who and where you are. If a command reports `no agent given`, that
-  is the cause — see Preflight.
+- Pass `--agent <AGENT>` explicitly; the project resolves from your linked directory
+  (see Preflight). No env vars or relaunch are needed. `ORCH_PROJECT`/`ORCH_AGENT` still
+  work as overrides if set.

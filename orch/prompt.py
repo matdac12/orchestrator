@@ -41,16 +41,15 @@ Project: {project}
 Orchestrator repo (CLI + skills): {repo_path}
 All orch commands run as: python {repo_path}/orch.py <cmd>
 
-STEP 1 - in your TERMINAL, set up the window, THEN launch Claude Code from it.
-Do this in the shell BEFORE `claude` starts: env vars do NOT persist if you set
-them from inside the session, and `/report`/`/checkpoint` need them.
-  cd <your local checkout of the {project} project>   # this window works INSIDE the target project
-  export ORCH_PROJECT={project}
-  export ORCH_AGENT={agent}
-  claude                                               # launch from THIS same shell
+SETUP (once per checkout) - bind this directory to the project so every command
+knows where it is. No env vars, no relaunch needed:
+  cd <your local checkout of the {project} project>   # work INSIDE the target project
+  python {repo_path}/orch.py link {project}
 
-STEP 2 - once Claude Code is open in this window, type:
+Then just start the loop in Claude Code:
   /loop /work {agent}
+
+You are agent {agent}: pass `--agent {agent}` on commands (the skills already do).
 
 {_task_brief(task)}
 
@@ -65,15 +64,12 @@ Project: {project}
 Orchestrator repo (CLI + skills): {repo_path}
 All orch commands run as: python {repo_path}/orch.py <cmd>
 
-STEP 1 - in your TERMINAL, set up the window, THEN launch Claude Code from it.
-Do this in the shell BEFORE `claude` starts (env vars do NOT persist if set from
-inside the session). You merge branches, so this window MUST run inside the target
-project's git checkout.
+SETUP (once) - bind this directory to the project. You merge branches, so run inside
+the target project's git checkout. No env vars, no relaunch needed:
   cd <your local checkout of the {project} project>
-  export ORCH_PROJECT={project}
-  claude                                               # launch from THIS same shell
+  python {repo_path}/orch.py link {project}
 
-STEP 2 - once Claude Code is open in this window, type:
+Then start the loop in Claude Code:
   /loop /orchestrate
 
 You own integration only: merge `done` branches into main + run tests, reconcile

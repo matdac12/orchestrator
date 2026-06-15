@@ -6,11 +6,10 @@ user-invocable: true
 
 # Report
 
-Report your progress to the orchestrator with no flags to remember. You are a worker
-agent; your identity is in `ORCH_AGENT` and the project in `ORCH_PROJECT` — exported in
-the terminal **before** `claude` was launched (they do not persist if set from inside
-the session). Resolve `<path>` = the orchestrator repo path
-(`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project).
+Report your progress to the orchestrator. You are a worker agent; pass your worker
+letter as `--agent <AGENT>` (the letter from your `/work` loop). The project resolves
+from your linked directory — no env vars needed. Resolve `<path>` = the orchestrator
+repo path (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project).
 
 ## Usage
 
@@ -18,9 +17,9 @@ the session). Resolve `<path>` = the orchestrator repo path
 `executing` · `done` · `blocked` · `note`.
 
 - First word is a known status → run:
-  `python <path>/orch.py report --status <status> --msg "<the rest>"`
+  `python <path>/orch.py report --agent <AGENT> --status <status> --msg "<the rest>"`
 - First word is NOT a known status → treat the whole input as a note:
-  `python <path>/orch.py report --status note --msg "<the whole input>"`
+  `python <path>/orch.py report --agent <AGENT> --status note --msg "<the whole input>"`
 - `/report done` needs no message — the branch is auto-detected from git.
 
 ## Notes
@@ -28,6 +27,6 @@ the session). Resolve `<path>` = the orchestrator repo path
 - `blocked` automatically pings the human on Telegram — use it only when you truly need
   intervention.
 - Keep messages short; report often so the orchestrator and dashboard stay live.
-- Do not pass `--agent`/`--project`; they come from `ORCH_AGENT`/`ORCH_PROJECT`. If a
-  report fails with `no agent given`, those env vars were not exported before `claude`
-  launched — tell the human to set them and relaunch from the same shell.
+- Pass `--agent <AGENT>` (your worker letter). The project resolves from the linked
+  directory; `--project`/`ORCH_PROJECT` are optional overrides. If a report fails with
+  `can't infer the project`, the checkout isn't linked — run `orch link <project>` once.

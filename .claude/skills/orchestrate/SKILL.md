@@ -14,24 +14,22 @@ Resolve `<path>` = **the orchestrator repo path**, which is
 inside the target project, but `orch.py` lives in the orchestrator repo). All commands:
 `python <path>/orch.py <cmd>`.
 
-## Preflight (run once, at the start — do NOT skip)
+The project is inferred from your working directory once it's linked — no env vars, no
+relaunch. `ORCH_PROJECT` still works as an override.
 
-`ORCH_PROJECT` comes from the environment, which the human must have exported **in the
-terminal before launching `claude`** (env vars do not persist if set from inside the
-session). Before the first cycle:
+## Preflight (run once, at the start — do NOT skip)
 
 1. **Confirm the directory.** Run `pwd` / `git remote -v`. Because you merge `done`
    branches into `main`, this window MUST be inside the **target project's** git
    checkout — not the orchestrator repo. If it looks wrong, stop and tell the human.
-2. **Confirm the project is wired.** Run `python <path>/orch.py status --json`. If it
-   errors with `no project given`, `ORCH_PROJECT` is missing → **stop** and tell the
-   human to export it and relaunch `claude` from the same shell (or run `python
-   <path>/orch.py prompt --orchestrator --project <name>`). Do not `export` it yourself
-   — it will not stick.
+2. **Confirm the project resolves.** Run `python <path>/orch.py status --json`. If it
+   errors with `can't infer the project from this directory`, this checkout isn't linked
+   → run `python <path>/orch.py link <project>` once here (ask the human the project
+   name if unsure), then retry.
 
 ## Autonomous half (every cycle, no human needed)
 
-1. `orch status --project $ORCH_PROJECT --json`. Read the top `waiting` list first:
+1. `orch status --json` (project auto-resolves from the linked directory). Read the top `waiting` list first:
    any agent there is blocked ON YOU — surface it immediately. Also scan recent
    events for `kind=warning` (a worker skipped/downgraded a step, e.g. Codex review):
    do not merge that branch until you have accounted for the warning.
@@ -45,8 +43,8 @@ session). Before the first cycle:
      `orch post --agent orchestrator --task <id> --kind blocker --msg "<why>"`,
      `orch notify --msg "Merge blocked on task <id>: <why>" --title "Orchestrator needs input"`.
 3. If nothing is actionable, end the turn; the loop reschedules. To avoid empty
-   hand-polling you may instead block on `orch wait --project $ORCH_PROJECT
-   --timeout <sec>`, which returns as soon as any event/task changes (or times out).
+   hand-polling you may instead block on `orch wait --timeout <sec>`, which returns as
+   soon as any event/task changes (or times out).
 
 ## Collaborative half (when the human is in the window)
 
