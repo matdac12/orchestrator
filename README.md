@@ -54,14 +54,25 @@ queued → discussing → executing → done → merged     (+ blocked)
 ## Getting started
 
 1. **Install the skills at user level** so worker windows in any project can see them —
-   symlink (or copy) this repo's `.claude/skills/*` into `~/.claude/skills/`
+   link this repo's `.claude/skills/*` into `~/.claude/skills/`
    (see [Installing skills](#installing-skills-for-worker-windows)).
-2. **Open Claude Code inside the target project** you want built.
-3. **Paste the orchestrator bootstrap prompt** — it registers the project, queues 2-3
-   parallel kickoffs with you, then starts `/loop /orchestrate`.
-4. **Open N worker windows** (one per agent); in each, export `ORCH_PROJECT` and
-   `ORCH_AGENT=A`, then run `/loop /work A`.
-5. **Watch progress** with `orch serve` (dashboard) or via Telegram pings.
+2. **Register the project once:** `python orch.py init myproject`.
+3. **Each window is opened the same way — set up the shell, THEN launch Claude Code from
+   it.** The env vars must be inherited by the `claude` process; they do *not* persist
+   if exported from inside the session. `orch prompt` prints the exact, copy-pasteable
+   setup for a window (repo path, the `cd`/`export` lines, the loop command, and the
+   window's current task):
+
+   ```bash
+   python orch.py prompt --orchestrator --project myproject   # the 1 orchestrator window
+   python orch.py prompt --agent A --project myproject         # each worker window (A/B/C)
+   ```
+
+   For every window: `cd` into the **target project's** checkout, `export ORCH_PROJECT`
+   (and `ORCH_AGENT` for workers), launch `claude` from that shell, then type the loop
+   command (`/loop /orchestrate` or `/loop /work A`). The orchestrator window queues 2-3
+   parallel kickoffs with you on start.
+4. **Watch progress** with `orch serve` (dashboard) or via Telegram pings.
 
 ## Requirements
 
@@ -127,21 +138,35 @@ Both live in `.claude/skills/`.
 ## Installing skills for worker windows
 
 Worker agents run inside the *target* projects they build, not this repo, so the
-skills must be reachable everywhere. Install them at user level — symlink (or copy)
-this repo's `.claude/skills/*` into `~/.claude/skills/`:
+skills must be reachable everywhere. Install them at user level by **linking** this
+repo's `.claude/skills/*` into `~/.claude/skills/` (link, not copy — a copy goes stale
+and your edits never reach running agents).
+
+macOS / Linux:
 
 ```bash
-ln -s "$(pwd)/.claude/skills/work" ~/.claude/skills/work
-ln -s "$(pwd)/.claude/skills/report" ~/.claude/skills/report
-ln -s "$(pwd)/.claude/skills/checkpoint" ~/.claude/skills/checkpoint
-ln -s "$(pwd)/.claude/skills/orchestrate" ~/.claude/skills/orchestrate
+for s in work report checkpoint orchestrate; do
+  ln -s "$(pwd)/.claude/skills/$s" ~/.claude/skills/$s
+done
 ```
 
-Per worker window, export both identity vars before starting `/loop /work A`:
+Windows — `ln -s` from Git Bash often silently falls back to a copy, so use a directory
+**junction** (no admin needed), pointing at this repo:
+
+```cmd
+for %d in (orchestrate work report checkpoint) do mklink /J "%USERPROFILE%\.claude\skills\%d" "C:\path\to\orchestrator\.claude\skills\%d"
+```
+
+Verify the link is live (not a stale copy) by diffing a skill against this repo; they
+must be identical. Note: Git Bash `[ -L ]`/`ls -la` does **not** flag junctions as
+symlinks — use `diff` to check, not `ls`.
+
+Identity vars are set **per window, in the terminal before `claude` is launched** (they
+do not persist if exported from inside the session):
 
 ```bash
 export ORCH_PROJECT=myproject
-export ORCH_AGENT=A
+export ORCH_AGENT=A      # workers only; omit for the orchestrator window
 ```
 
 ## Telegram notifications

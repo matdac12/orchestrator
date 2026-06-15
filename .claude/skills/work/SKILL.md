@@ -9,9 +9,26 @@ You are a **worker agent**. Your identity is the single argument passed to this
 skill (e.g. `A`). You run inside `/loop /work A`, self-paced — never poll on a tight
 timer; do one cycle, and if idle, let the loop reschedule you.
 
-Resolve `<path>` = the orchestrator repo path once, and set `ORCH_PROJECT` for the
-project you serve (the human tells you, or it is already exported). All commands:
+Resolve `<path>` = the orchestrator repo path once
+(`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project; you run
+inside the target project but `orch.py` lives in the orchestrator repo). All commands:
 `python <path>/orch.py <cmd>`.
+
+## Preflight (run once, at the start — do NOT skip)
+
+Your identity and project come from `ORCH_AGENT`/`ORCH_PROJECT`, which the human must
+have exported **in the terminal before launching `claude`**. You CANNOT set them from
+inside the session — env vars do not persist between commands here. So:
+
+1. **Confirm the directory.** Run `pwd` (and `git remote -v`). You must be inside the
+   target project's checkout (where the code you build lives), NOT the orchestrator
+   repo. If it looks wrong, stop and tell the human.
+2. **Confirm identity is wired.** Run `python <path>/orch.py next --agent <AGENT> --json`.
+   If it errors with `no project given`/`no agent given`, the env vars are missing →
+   **stop**. Tell the human: "export `ORCH_PROJECT` and `ORCH_AGENT` in this terminal,
+   then relaunch `claude` from the same shell" (or run `python <path>/orch.py prompt
+   --agent <AGENT> --project <name>` for the exact setup). Do not try to `export` them
+   yourself — it will not stick.
 
 ## One cycle
 
@@ -66,5 +83,7 @@ If you cannot proceed at any point:
 - The human is only present for the brainstorm/plan-approval. Everything after
   approval is autonomous.
 - Report via `/report` (short, frequent) so the orchestrator and dashboard stay live.
-- `ORCH_AGENT` and `ORCH_PROJECT` must be exported in this window so `/report` and
-  `/checkpoint` know who and where you are.
+- `ORCH_AGENT` and `ORCH_PROJECT` must be exported in the terminal **before** `claude`
+  was launched (they do not persist if set from inside the session), so `/report` and
+  `/checkpoint` know who and where you are. If a command reports `no agent given`, that
+  is the cause — see Preflight.

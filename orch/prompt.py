@@ -9,7 +9,9 @@ from pathlib import Path
 from orch import db
 
 # Repo root = parent of the `orch` package directory (where orch.py lives).
-REPO_PATH = str(Path(__file__).resolve().parents[1])
+# Use POSIX-style separators so `<repo>/orch.py` reads cleanly on every platform
+# (Windows `python C:/.../orch.py` works fine; avoids ugly mixed back/forward slashes).
+REPO_PATH = Path(__file__).resolve().parents[1].as_posix()
 
 
 def _agent_task(conn, project, agent):
@@ -35,12 +37,19 @@ def _task_brief(task):
 def worker_prompt(conn, project, agent, repo_path=REPO_PATH):
     task = _agent_task(conn, project, agent)
     return f"""You are WORKER AGENT {agent} in the orchestrator multi-agent system.
+Project: {project}
 Orchestrator repo (CLI + skills): {repo_path}
-All commands run as: python {repo_path}/orch.py <cmd>
+All orch commands run as: python {repo_path}/orch.py <cmd>
 
-In THIS window first export your identity, then start the loop:
+STEP 1 - in your TERMINAL, set up the window, THEN launch Claude Code from it.
+Do this in the shell BEFORE `claude` starts: env vars do NOT persist if you set
+them from inside the session, and `/report`/`/checkpoint` need them.
+  cd <your local checkout of the {project} project>   # this window works INSIDE the target project
   export ORCH_PROJECT={project}
   export ORCH_AGENT={agent}
+  claude                                               # launch from THIS same shell
+
+STEP 2 - once Claude Code is open in this window, type:
   /loop /work {agent}
 
 {_task_brief(task)}
@@ -52,11 +61,19 @@ with the human. Report progress with /report; finish with /checkpoint."""
 
 def orchestrator_prompt(conn, project, repo_path=REPO_PATH):
     return f"""You are the ORCHESTRATOR of the multi-agent system.
+Project: {project}
 Orchestrator repo (CLI + skills): {repo_path}
-All commands run as: python {repo_path}/orch.py <cmd>
+All orch commands run as: python {repo_path}/orch.py <cmd>
 
-In THIS window:
+STEP 1 - in your TERMINAL, set up the window, THEN launch Claude Code from it.
+Do this in the shell BEFORE `claude` starts (env vars do NOT persist if set from
+inside the session). You merge branches, so this window MUST run inside the target
+project's git checkout.
+  cd <your local checkout of the {project} project>
   export ORCH_PROJECT={project}
+  claude                                               # launch from THIS same shell
+
+STEP 2 - once Claude Code is open in this window, type:
   /loop /orchestrate
 
 You own integration only: merge `done` branches into main + run tests, reconcile

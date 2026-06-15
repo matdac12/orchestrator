@@ -9,8 +9,12 @@ user-invocable: true
 Run this after completing the plan's implementation, before the work is considered
 done. Execute the steps in order; do not skip Step 1 or Step 4.
 
-Resolve `<path>` = the orchestrator repo path. Your identity is `ORCH_AGENT`, project
-`ORCH_PROJECT`.
+Resolve `<path>` = the orchestrator repo path
+(`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project; you run
+inside the target project but `orch.py` lives in the orchestrator repo). Your identity
+is `ORCH_AGENT`, project `ORCH_PROJECT` — both exported in the terminal before `claude`
+launched (they do not persist if set from inside the session). If a command reports
+`no agent given`, that is why.
 
 **Never degrade silently.** If you skip or downgrade any step below (Codex
 unavailable, token expired, review run at a lower effort than the change deserved,
