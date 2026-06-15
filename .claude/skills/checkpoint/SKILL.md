@@ -37,10 +37,13 @@ note what changed.
 ## Step 2 — Codex Review (optional)
 
 If the `codex` plugin is available, get a second opinion — follow the `/ask-codex`
-skill for the exact mechanics:
-1. Run `/codex:review` on your branch's changes (review-only; use
-   `/codex:adversarial-review` instead if you want the design/approach challenged).
-   Do NOT use `/codex:rescue` here — that can edit code; this is a review pass.
+skill for the exact mechanics. Note `/codex:review` and `/codex:adversarial-review` are
+**user-only** (you cannot invoke them); checkpoint runs autonomously, so:
+1. Run `/codex:rescue` with an explicit **review-only** framing on your branch's
+   changes, e.g. `/codex:rescue Review ONLY — do not edit any files. Review the changes
+   on this branch for correctness, design, and risk: <point at the diff>.` (The rescue
+   runtime stays read-only for a review request.) Use an "adversarial review … challenge
+   the approach/assumptions" framing if you want the design questioned.
 2. Reason critically about the output — do not accept it at face value.
 3. Present your analysis (agree/disagree + why) and discuss with the user.
 4. Apply agreed changes, then re-run `/code-review` if code was modified.
