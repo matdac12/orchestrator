@@ -62,6 +62,25 @@ relaunch. `ORCH_PROJECT` still works as an override.
   `orch notify --msg "Agents idle, nothing queued — what's next?" --title "Orchestrator needs input"`
   and wait, rather than inventing work.
 
+## Delegating to a background agent (optional)
+
+After queuing a kickoff, you can hand it to a background session instead of waiting
+for the human to open a pane and start it by hand — but only when the human says so;
+never spawn one unasked (they may be driving panes themselves this cycle).
+
+1. Pick the agent letter from your own context of which agents are currently active
+   (you already track this by talking to the human and reading `orch status`).
+   `claude agents --json` is there as an optional cross-check if you want extra
+   certainty, not a required step.
+2. Invoke `agent-handoff` with:
+   - `name`: `"Agent<letter> - <issue>"` (or the branch name if there's no linked
+     issue)
+   - `prompt`: `"/loop /work <letter>"`
+3. `agent-handoff` spawns it and hands you back `{name, pid, sessionId, cwd, status}`.
+   You don't need to pass — or record — a branch or task id through it: the spawned
+   worker looks up its own task via `orch next --agent <letter>`, which already has
+   the full context.
+
 ## Rules
 
 - Queuing new work is collaborative — never invent and queue endless tasks yourself.
