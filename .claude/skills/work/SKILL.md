@@ -33,7 +33,34 @@ once it's linked, so you need NO env vars and NO relaunch.
 
 1. **Find my task:** `orch next --agent <AGENT> --json`.
    - Empty output → say "idle, nothing queued" and end the turn. The loop rechecks later.
-2. **Branch on `status`:**
+
+2. **Ensure isolation.** Before touching this task, confirm you're working in a git
+   worktree branched from local HEAD, not the shared checkout:
+   - Detect existing isolation the way `using-git-worktrees` does: compare
+     `git rev-parse --git-dir` to `git rev-parse --git-common-dir` (and rule out a
+     submodule via `git rev-parse --show-superproject-working-tree`). If they differ
+     and you're not in a submodule, you're already isolated — skip the rest of this
+     step.
+   - Not isolated and the task has no `branch` set → skip this step; nothing to
+     isolate on yet.
+   - Not isolated, task has a `branch`, and its `worktree` field is already set
+     (resuming after a restart) → re-enter it: `EnterWorktree` with
+     `path: <that worktree path>` (or plain `cd <that path>` if the tool isn't
+     available).
+   - Not isolated, task has a `branch`, no `worktree` recorded yet (fresh claim) →
+     create one. Skip `using-git-worktrees`'s human-consent gate — you're unattended,
+     and the human already opted in by using the orchestrator system. Prefer the
+     native `EnterWorktree` tool, but first check this project's `worktree.baseRef`
+     setting (`.claude/settings.json`): its default, `fresh`, branches off
+     `origin/<default-branch>`, which can lag your local `main`. If it is not `head`,
+     skip `EnterWorktree` and fall back to plain
+     `git worktree add -b <branch> <new-path>` instead — it bases off local HEAD
+     with no setting needed. Either way, once created:
+     `python <path>/orch.py task update --task <id> --worktree <new-path>`.
+   - If creation fails (e.g. a sandboxed environment denies it), work in place and
+     mention the fallback in your next `/report`.
+
+3. **Branch on `status`:**
 
    - **`queued`** → `orch claim --agent <AGENT> --json` to take it (→ `discussing`).
      Then:
@@ -50,7 +77,7 @@ once it's linked, so you need NO env vars and NO relaunch.
      - Brainstorm WITH the human: invoke `superpowers:brainstorming`, using the
        task's `context` as the starting brief, through to `superpowers:writing-plans`.
      - When the plan file exists: `orch task update --task <id> --plan <plan_path>`.
-     - Ask the human to approve the plan. On approval, continue to step 3.
+     - Ask the human to approve the plan. On approval, continue to step 4.
 
    - **`discussing`** (resumed) → continue the brainstorm/plan from where it stands.
 
@@ -58,15 +85,15 @@ once it's linked, so you need NO env vars and NO relaunch.
 
    - **`blocked`** → do nothing; the human must intervene. End the turn.
 
-3. **Execute (after plan approval):**
+4. **Execute (after plan approval):**
    - `/report executing executing plan` (flips the task to `executing`).
    - Implement the plan via `superpowers:executing-plans`. After each plan task:
      `/report plan task N done` (recorded as a note).
    - Self-review and finish with `/checkpoint` — it runs code review, optional Codex
      review, commits your branch, and reports `done` for you.
 
-4. **Finish:**
-   - `/checkpoint` (Step 3 above) already reported `done`. Loop back to step 1 for the
+5. **Finish:**
+   - `/checkpoint` (Step 4 above) already reported `done`. Loop back to step 1 for the
      next task.
 
 ## Blockers
