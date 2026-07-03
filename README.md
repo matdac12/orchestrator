@@ -136,8 +136,12 @@ merging.
   (`executing`/`done`/`blocked`/`note`); no flags to remember.
 - **`/checkpoint`** — worker post-work flow: code review → optional Codex review →
   commit → auto-report `done`. Does not touch Linear (the orchestrator owns that).
+- **`/agent-handoff`** — spawn a named background `claude` session with a given
+  prompt. Standalone (no orchestrator knowledge) — use it any time you want to hand
+  off work without opening a pane by hand. `/orchestrate` uses it to delegate
+  kickoffs when you ask it to.
 
-Both live in `.claude/skills/`.
+All five live in `.claude/skills/`.
 
 ## Installing skills for worker windows
 
@@ -149,7 +153,7 @@ and your edits never reach running agents).
 macOS / Linux:
 
 ```bash
-for s in work report checkpoint orchestrate; do
+for s in work report checkpoint orchestrate agent-handoff; do
   ln -s "$(pwd)/.claude/skills/$s" ~/.claude/skills/$s
 done
 ```
@@ -158,7 +162,7 @@ Windows — `ln -s` from Git Bash often silently falls back to a copy, so use a 
 **junction** (no admin needed), pointing at this repo:
 
 ```cmd
-for %d in (orchestrate work report checkpoint) do mklink /J "%USERPROFILE%\.claude\skills\%d" "C:\path\to\orchestrator\.claude\skills\%d"
+for %d in (orchestrate work report checkpoint agent-handoff) do mklink /J "%USERPROFILE%\.claude\skills\%d" "C:\path\to\orchestrator\.claude\skills\%d"
 ```
 
 Verify the link is live (not a stale copy) by diffing a skill against this repo; they
