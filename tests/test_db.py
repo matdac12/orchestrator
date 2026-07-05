@@ -71,6 +71,10 @@ class ProjectPathTest(unittest.TestCase):
 
 
 class RetryTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+
     def test_with_retry_recovers_from_locked(self):
         calls = {"n": 0}
 
@@ -80,7 +84,8 @@ class RetryTest(unittest.TestCase):
                 raise sqlite3.OperationalError("database is locked")
             return "ok"
 
-        self.assertEqual(db.with_retry(action, base_delay=0.0), "ok")
+        self.assertEqual(
+            db.with_retry(self.conn, action, base_delay=0.0), "ok")
         self.assertEqual(calls["n"], 3)
 
     def test_with_retry_reraises_other_errors(self):
@@ -88,7 +93,30 @@ class RetryTest(unittest.TestCase):
             raise sqlite3.OperationalError("no such table")
 
         with self.assertRaises(sqlite3.OperationalError):
-            db.with_retry(action, base_delay=0.0)
+            db.with_retry(self.conn, action, base_delay=0.0)
+
+    def test_with_retry_rolls_back_before_retrying(self):
+        # If the "locked" error fires at commit() rather than at the first
+        # write, the transaction is still open with that write already
+        # applied. Without a rollback, retrying re-runs the write a second
+        # time inside the same open transaction, leaving 2 rows once the
+        # retry finally commits instead of 1.
+        self.conn.execute("CREATE TABLE t (x TEXT)")
+        self.conn.commit()
+        calls = {"n": 0}
+
+        def action():
+            calls["n"] += 1
+            self.conn.execute("INSERT INTO t (x) VALUES ('row')")
+            if calls["n"] < 2:
+                raise sqlite3.OperationalError("database is locked")
+            self.conn.commit()
+            return "ok"
+
+        self.assertEqual(
+            db.with_retry(self.conn, action, base_delay=0.0), "ok")
+        rows = self.conn.execute("SELECT COUNT(*) FROM t").fetchone()[0]
+        self.assertEqual(rows, 1)
 
 
 class ProjectTest(unittest.TestCase):

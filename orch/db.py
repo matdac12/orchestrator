@@ -87,12 +87,19 @@ def _migrate(conn):
     conn.commit()
 
 
-def with_retry(action, attempts=5, base_delay=0.05):
+def with_retry(conn, action, attempts=5, base_delay=0.05):
+    """Retry `action` (a closure over `conn`) on a "database is locked"
+    error. Rolls back before each retry: if the lock fires at commit() time
+    rather than at the first write statement, the transaction is still open
+    with that write already applied — retrying without a rollback would
+    re-run it a second time inside that same transaction, duplicating the
+    write once it finally commits."""
     for i in range(attempts):
         try:
             return action()
         except sqlite3.OperationalError as e:
             if "locked" in str(e).lower() and i < attempts - 1:
+                conn.rollback()
                 time.sleep(base_delay * (2 ** i))
                 continue
             raise
@@ -119,7 +126,7 @@ def create_project(conn, name, notes=None):
         conn.commit()
         return cur.lastrowid
 
-    return with_retry(_do), True
+    return with_retry(conn, _do), True
 
 
 def get_project(conn, name):
@@ -154,7 +161,7 @@ def set_project_path(conn, name, path):
                      (norm, name))
         conn.commit()
 
-    with_retry(_do)
+    with_retry(conn, _do)
     return norm
 
 
@@ -193,7 +200,7 @@ def add_task(conn, project, agent, title, issue_ref=None, branch=None,
         conn.commit()
         return cur.lastrowid
 
-    return with_retry(_do)
+    return with_retry(conn, _do)
 
 
 def update_task(conn, task_id, status=None, branch=None, issue_ref=None,
@@ -230,7 +237,7 @@ def update_task(conn, task_id, status=None, branch=None, issue_ref=None,
             f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", params)
         conn.commit()
 
-    with_retry(_do)
+    with_retry(conn, _do)
 
 
 def _active_tasks(conn, project_id, agent):
@@ -301,7 +308,7 @@ def post_event(conn, project, agent, kind="status", message="",
         conn.commit()
         return cur.lastrowid
 
-    return with_retry(_do)
+    return with_retry(conn, _do)
 
 
 def _row_to_dict(row):
@@ -380,7 +387,7 @@ def claim_next(conn, project, agent):
         return dict(conn.execute(
             "SELECT * FROM tasks WHERE id = ?", (row["id"],)).fetchone())
 
-    return with_retry(_do)
+    return with_retry(conn, _do)
 
 
 def state_signature(conn, project):
