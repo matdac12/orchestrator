@@ -182,11 +182,15 @@ launches, since env vars set from inside a session do not persist between comman
 Worker/orchestrator agents run unattended for long stretches — nobody is watching the
 moment a command actually executes. `hooks/git_guardrails.py` is a `PreToolUse` hook
 that blocks the small set of git commands that destroy history or uncommitted work
-outright: force push, `reset --hard`, `clean -f`, `branch -D`, and `checkout .` /
-`restore .`. It's **not installed by default** — this repo only ships the script; you
-decide whether and where to wire it in (globally in `~/.claude/settings.json` so it
-covers every agent regardless of target project, or per-project if you'd rather scope
-it narrower):
+outright: force push, `clean -f`, `branch -D`, `checkout .` / `restore .`, and a hard
+reset to a moving target (no arg, `HEAD~n`, a branch/tag name, `origin/main`, ...). A
+hard reset to a **specific full commit SHA** is deliberately allowed — that's the shape
+of a recorded rollback point, which is exactly what `orchestrate/SKILL.md`'s merge
+safety step uses to restore `main` if tests fail after a clean merge; a blanket
+`reset --hard` block would silently defeat that safety net. It's **not installed by
+default** — this repo only ships the script; you decide whether and where to wire it in
+(globally in `~/.claude/settings.json` so it covers every agent regardless of target
+project, or per-project if you'd rather scope it narrower):
 
 ```json
 {
