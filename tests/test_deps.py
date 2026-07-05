@@ -36,7 +36,7 @@ class DepsTest(unittest.TestCase):
         msg = deps.sync(self.conn, "demo", cwd=self.root)
         self.assertIn("project root", msg)
 
-    def test_hardlinks_node_modules_when_lockfile_matches(self):
+    def test_copies_node_modules_when_lockfile_matches(self):
         lock = '{"lockfileVersion": 3}'
         self._write(os.path.join(self.root, "package-lock.json"), lock)
         self._write(os.path.join(self.root, "node_modules", "left-pad",
@@ -45,11 +45,31 @@ class DepsTest(unittest.TestCase):
 
         msg = deps.sync(self.conn, "demo", cwd=self.worktree)
 
-        self.assertIn("linked node_modules", msg)
-        linked = os.path.join(self.worktree, "node_modules", "left-pad",
+        self.assertIn("copied node_modules", msg)
+        copied = os.path.join(self.worktree, "node_modules", "left-pad",
                               "index.js")
-        self.assertTrue(os.path.isfile(linked))
-        with open(linked) as f:
+        self.assertTrue(os.path.isfile(copied))
+        with open(copied) as f:
+            self.assertEqual(f.read(), "module.exports = 1;")
+
+    def test_copy_is_independent_of_root(self):
+        # The whole point of switching from hardlinks to copies: writing
+        # into the worktree's copy must never affect the root's file.
+        lock = '{"lockfileVersion": 3}'
+        self._write(os.path.join(self.root, "package-lock.json"), lock)
+        root_file = os.path.join(self.root, "node_modules", "left-pad",
+                                 "index.js")
+        self._write(root_file, "module.exports = 1;")
+        self._write(os.path.join(self.worktree, "package-lock.json"), lock)
+
+        deps.sync(self.conn, "demo", cwd=self.worktree)
+
+        copied = os.path.join(self.worktree, "node_modules", "left-pad",
+                              "index.js")
+        with open(copied, "w") as f:
+            f.write("module.exports = 999; // mutated in the worktree")
+
+        with open(root_file) as f:
             self.assertEqual(f.read(), "module.exports = 1;")
 
     def test_falls_back_to_npm_ci_when_lockfile_differs(self):
@@ -88,7 +108,7 @@ class DepsTest(unittest.TestCase):
         self.assertEqual(calls, [self.worktree])
         self.assertEqual(msg, "npm ci completed")
 
-    def test_falls_back_to_npm_ci_when_hardlink_fails(self):
+    def test_falls_back_to_npm_ci_when_copy_fails(self):
         lock = '{"v": 1}'
         self._write(os.path.join(self.root, "package-lock.json"), lock)
         self._write(os.path.join(self.root, "node_modules", "pkg", "a.js"),
@@ -96,16 +116,16 @@ class DepsTest(unittest.TestCase):
         self._write(os.path.join(self.worktree, "package-lock.json"), lock)
 
         def boom(src, dst):
-            raise OSError("cross-device link")
+            raise OSError("disk full")
 
-        orig_link = deps._hardlink_tree
+        orig_copy = deps._copy_tree
         orig_ci = deps._npm_ci
-        deps._hardlink_tree = boom
+        deps._copy_tree = boom
         deps._npm_ci = lambda cwd: (True, "npm ci completed")
         try:
             msg = deps.sync(self.conn, "demo", cwd=self.worktree)
         finally:
-            deps._hardlink_tree = orig_link
+            deps._copy_tree = orig_copy
             deps._npm_ci = orig_ci
 
         self.assertEqual(msg, "npm ci completed")

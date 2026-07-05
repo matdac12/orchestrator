@@ -72,10 +72,12 @@ once it's linked, so you need NO env vars and NO relaunch.
      possibility of committing straight to `main`.
    - If this project doesn't already gitignore `.claude/worktrees/`, mention it to the
      human — worktrees under it are transient and shouldn't be tracked.
-   - **Sync dependencies fast:** `python <path>/orch.py deps`. Hardlinks `node_modules`
-     from the project root when the lockfile matches (near-instant); otherwise runs a
-     real `npm ci`. Safe to call every cycle — it no-ops if `node_modules` is already
-     here (resumed task) or this isn't an npm project.
+   - **Sync dependencies fast:** `python <path>/orch.py deps`. Copies `node_modules`
+     from the project root when the lockfile matches (no network, no reinstall — just a
+     local file copy, independent of the root so nothing this worktree does to it can
+     affect anyone else's); otherwise runs a real `npm ci`. Safe to call every cycle —
+     it no-ops if `node_modules` is already here (resumed task) or this isn't an npm
+     project.
 
 3. **Branch on `status`:**
 

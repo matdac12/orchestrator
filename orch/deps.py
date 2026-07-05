@@ -20,34 +20,15 @@ def _same_file(a, b):
         return False
 
 
-def _hardlink_tree(src_root, dst_root):
-    """Recreate src_root at dst_root using hardlinks for files (near-instant,
-    no content duplication) and real symlinks for symlinked entries (e.g.
-    node_modules/.bin). Raises OSError on failure (e.g. cross-device);
-    callers should discard the partial dst_root and fall back to a real
-    install."""
-    os.makedirs(dst_root, exist_ok=True)
-    for dirpath, dirnames, filenames in os.walk(src_root):
-        rel = os.path.relpath(dirpath, src_root)
-        dst_dir = dst_root if rel == "." else os.path.join(dst_root, rel)
-        os.makedirs(dst_dir, exist_ok=True)
-
-        real_dirnames = []
-        for name in dirnames:
-            src_path = os.path.join(dirpath, name)
-            if os.path.islink(src_path):
-                os.symlink(os.readlink(src_path), os.path.join(dst_dir, name))
-            else:
-                real_dirnames.append(name)
-        dirnames[:] = real_dirnames
-
-        for name in filenames:
-            src_path = os.path.join(dirpath, name)
-            dst_path = os.path.join(dst_dir, name)
-            if os.path.islink(src_path):
-                os.symlink(os.readlink(src_path), dst_path)
-            else:
-                os.link(src_path, dst_path)
+def _copy_tree(src_root, dst_root):
+    """Recreate src_root at dst_root as a fully independent copy — no shared
+    inodes with the source, so nothing written into dst_root's files can
+    ever affect src_root's (the reason this isn't a hardlink: some tools,
+    e.g. `prisma generate` or `patch-package`, write into existing files
+    inside node_modules rather than replacing them). Raises OSError or
+    shutil.Error on failure; callers should discard the partial dst_root
+    and fall back to a real install."""
+    shutil.copytree(src_root, dst_root, symlinks=True)
 
 
 def _npm_ci(cwd):
@@ -66,11 +47,13 @@ def _npm_ci(cwd):
 
 
 def sync(conn, project_name, cwd=None):
-    """Fast-sync node_modules into `cwd` (a worker's worktree). Hardlinks
+    """Fast-sync node_modules into `cwd` (a worker's worktree). Copies
     node_modules from the linked project root when its package-lock.json is
-    byte-identical to this one (near-instant); otherwise runs a real
-    `npm ci` here. No-op if this isn't an npm project, or node_modules is
-    already present (idempotent across resumed cycles)."""
+    byte-identical to this one (no network, no reinstall — just a local
+    file copy, fully independent of the root so nothing written into it
+    later can corrupt the shared root or any other worktree); otherwise
+    runs a real `npm ci` here. No-op if this isn't an npm project, or
+    node_modules is already present (idempotent across resumed cycles)."""
     cwd = cwd or os.getcwd()
     proj = db.require_project(conn, project_name)
     root = proj["path"]
@@ -99,9 +82,9 @@ def sync(conn, project_name, cwd=None):
 
     if can_link:
         try:
-            _hardlink_tree(src_modules, dst_modules)
-            return f"linked node_modules from {root} (lockfile match)"
-        except OSError:
+            _copy_tree(src_modules, dst_modules)
+            return f"copied node_modules from {root} (lockfile match)"
+        except (OSError, shutil.Error):
             shutil.rmtree(dst_modules, ignore_errors=True)
 
     ok, msg = _npm_ci(cwd)
