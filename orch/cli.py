@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 from orch import db
@@ -126,7 +127,38 @@ def cmd_post(conn, args):
     return 0
 
 
+def _is_inside_worktree(cwd):
+    """True if cwd is a git worktree other than the repo's main checkout —
+    ruling out a submodule, which also has its own private git-dir. Same
+    detection the work skill's isolation check uses:
+    `git rev-parse --git-dir` vs `--git-common-dir`."""
+    def _git(args):
+        try:
+            out = subprocess.run(
+                ["git", *args], cwd=cwd, capture_output=True, text=True,
+                timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return out.stdout.strip() if out.returncode == 0 else None
+
+    git_dir = _git(["rev-parse", "--git-dir"])
+    common_dir = _git(["rev-parse", "--git-common-dir"])
+    if git_dir is None or common_dir is None:
+        return False
+    norm = lambda p: os.path.normcase(os.path.abspath(os.path.join(cwd, p)))
+    if norm(git_dir) == norm(common_dir):
+        return False
+    if _git(["rev-parse", "--show-superproject-working-tree"]):
+        return False  # submodule, not a worktree
+    return True
+
+
 def cmd_link(conn, args):
+    if _is_inside_worktree(os.getcwd()):
+        print("error: refusing to link from inside a git worktree — cd to "
+              "the main checkout and run `orch link` there instead",
+              file=sys.stderr)
+        return 1
     db.require_project(conn, args.name)
     path = db.set_project_path(conn, args.name, os.getcwd())
     print(f"linked '{args.name}' to {path}")
