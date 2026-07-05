@@ -45,16 +45,21 @@ once it's linked, so you need NO env vars and NO relaunch.
    - **Already there?** Compare your cwd to that *exact* path — not just "am I in some
      worktree." A stale worktree left over from a *previous* task would pass a looser
      check; comparing the exact path catches that. If they match, skip to step 3.
-   - **Task's `worktree` field is set and the directory exists** (resuming after a
-     restart) → re-enter it: `EnterWorktree` with `path: <that path>` (or plain
-     `cd <that path>` if the tool isn't available).
-   - **Not set yet (fresh claim) → create it at the computed path.** Skip
-     `using-git-worktrees`'s human-consent gate — you're unattended, and the human
-     already opted in by using the orchestrator system. Prefer the native
-     `EnterWorktree` tool with `name: "<AGENT>-<task id>"` (it places new worktrees
-     under `.claude/worktrees/` relative to cwd, which is exactly the computed path
-     when called from the project root). First check this project's `worktree.baseRef`
-     setting (`.claude/settings.json`): its default, `fresh`, branches off
+   - **Directory already exists at the computed path** (resuming after a restart —
+     regardless of whether the task's `worktree` field agrees; the directory on disk
+     is the source of truth, not the field, so this also self-heals a crash between
+     creating the worktree and recording it, or the field pointing at a path that's
+     since been pruned/deleted) → re-enter it: `EnterWorktree` with `path: <that path>`
+     (or plain `cd <that path>` if the tool isn't available). If the `worktree` field
+     doesn't already match, record it now (see below).
+   - **Directory doesn't exist yet** (fresh claim, or the field pointed at a path
+     that's gone) **→ create it at the computed path.** Skip `using-git-worktrees`'s
+     human-consent gate — you're unattended, and the human already opted in by using
+     the orchestrator system. Prefer the native `EnterWorktree` tool with
+     `name: "<AGENT>-<task id>"` (it places new worktrees under `.claude/worktrees/`
+     relative to cwd, which is exactly the computed path when called from the project
+     root). First check this project's `worktree.baseRef` setting
+     (`.claude/settings.json`): its default, `fresh`, branches off
      `origin/<default-branch>`, which can lag your local `main`. If it is not `head`,
      skip `EnterWorktree` and fall back to
      `git worktree add -b <branch> <project root>/.claude/worktrees/<AGENT>-<task id>`
