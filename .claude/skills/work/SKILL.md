@@ -24,9 +24,13 @@ once it's linked, so you need NO env vars and NO relaunch.
    target project's checkout (where the code you build lives), NOT the orchestrator
    repo. If it looks wrong, stop and tell the human.
 2. **Confirm the project resolves.** Run `python <path>/orch.py next --agent <AGENT> --json`.
-   If it errors with `can't infer the project from this directory`, this checkout isn't
-   linked yet → run `python <path>/orch.py link <project>` once here (ask the human the
-   project name if unsure), then retry. (`ORCH_PROJECT` still works as an override if
+   If it errors with `can't infer the project from this directory`, this is a genuinely
+   fresh checkout that's never been linked → run `python <path>/orch.py link <project>`
+   once here (ask the human the project name if unsure), then retry. **Never run `link`
+   from inside a worktree** — it rebinds the project's shared root to wherever it's
+   run, silently breaking resolution for every other agent; the CLI itself now refuses
+   this, but if you ever see the error while inside a worktree, `cd` to the main
+   checkout and link from there instead. (`ORCH_PROJECT` still works as an override if
    you ever need it.)
 
 ## One cycle
@@ -34,31 +38,35 @@ once it's linked, so you need NO env vars and NO relaunch.
 1. **Find my task:** `orch next --agent <AGENT> --json`.
    - Empty output → say "idle, nothing queued" and end the turn. The loop rechecks later.
 
-2. **Ensure isolation.** Before touching this task, confirm you're working in a git
-   worktree branched from local HEAD, not the shared checkout:
-   - Detect existing isolation the way `using-git-worktrees` does: compare
-     `git rev-parse --git-dir` to `git rev-parse --git-common-dir` (and rule out a
-     submodule via `git rev-parse --show-superproject-working-tree`). If they differ
-     and you're not in a submodule, you're already isolated — skip the rest of this
-     step.
-   - Not isolated and the task has no `branch` set → skip this step; nothing to
-     isolate on yet.
-   - Not isolated, task has a `branch`, and its `worktree` field is already set
-     (resuming after a restart) → re-enter it: `EnterWorktree` with
-     `path: <that worktree path>` (or plain `cd <that path>` if the tool isn't
-     available).
-   - Not isolated, task has a `branch`, no `worktree` recorded yet (fresh claim) →
-     create one. Skip `using-git-worktrees`'s human-consent gate — you're unattended,
-     and the human already opted in by using the orchestrator system. Prefer the
-     native `EnterWorktree` tool, but first check this project's `worktree.baseRef`
+2. **Ensure isolation for THIS task, specifically.** Compute this task's fixed
+   worktree path: `<project root>/.claude/worktrees/<AGENT>-<task id>` — always the
+   same for a given task, so you can recompute it on any resume without trusting a
+   possibly-stale DB field.
+   - **Already there?** Compare your cwd to that *exact* path — not just "am I in some
+     worktree." A stale worktree left over from a *previous* task would pass a looser
+     check; comparing the exact path catches that. If they match, skip to step 3.
+   - **Task's `worktree` field is set and the directory exists** (resuming after a
+     restart) → re-enter it: `EnterWorktree` with `path: <that path>` (or plain
+     `cd <that path>` if the tool isn't available).
+   - **Not set yet (fresh claim) → create it at the computed path.** Skip
+     `using-git-worktrees`'s human-consent gate — you're unattended, and the human
+     already opted in by using the orchestrator system. Prefer the native
+     `EnterWorktree` tool with `name: "<AGENT>-<task id>"` (it places new worktrees
+     under `.claude/worktrees/` relative to cwd, which is exactly the computed path
+     when called from the project root). First check this project's `worktree.baseRef`
      setting (`.claude/settings.json`): its default, `fresh`, branches off
      `origin/<default-branch>`, which can lag your local `main`. If it is not `head`,
-     skip `EnterWorktree` and fall back to plain
-     `git worktree add -b <branch> <new-path>` instead — it bases off local HEAD
-     with no setting needed. Either way, once created:
-     `python <path>/orch.py task update --task <id> --worktree <new-path>`.
-   - If creation fails (e.g. a sandboxed environment denies it), work in place and
-     mention the fallback in your next `/report`.
+     skip `EnterWorktree` and fall back to
+     `git worktree add -b <branch> <project root>/.claude/worktrees/<AGENT>-<task id>`
+     instead — same destination, bases off local HEAD with no setting needed. Either
+     way, immediately record it — before doing anything else in the worktree:
+     `python <path>/orch.py task update --task <id> --worktree <that path>`.
+   - **Creation fails for any reason** (e.g. a sandboxed environment denies it) →
+     `/report blocked <why>` and stop. Do not fall back to working in the shared
+     checkout — that would silently drop every isolation guarantee, including the
+     possibility of committing straight to `main`.
+   - If this project doesn't already gitignore `.claude/worktrees/`, mention it to the
+     human — worktrees under it are transient and shouldn't be tracked.
    - **Sync dependencies fast:** `python <path>/orch.py deps`. Hardlinks `node_modules`
      from the project root when the lockfile matches (near-instant); otherwise runs a
      real `npm ci`. Safe to call every cycle — it no-ops if `node_modules` is already
@@ -97,8 +105,13 @@ once it's linked, so you need NO env vars and NO relaunch.
      review, commits your branch, and reports `done` for you.
 
 5. **Finish:**
-   - `/checkpoint` (Step 4 above) already reported `done`. Loop back to step 1 for the
-     next task.
+   - `/checkpoint` (Step 4 above) already reported `done`. **Return to the shared
+     project root** — `ExitWorktree` with `action: "keep"` (or `cd` back if the tool
+     isn't available) — before ending the turn. Your cwd must never sit inside a
+     worktree between tasks: the branch isn't merged yet, so this is always `keep`,
+     never `remove` — the orchestrator owns cleanup after merge, and on Windows it
+     can't remove a directory your session is still parked in.
+   - Loop back to step 1 for the next task.
 
 ## Blockers
 
