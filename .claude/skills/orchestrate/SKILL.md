@@ -25,7 +25,9 @@ relaunch. `ORCH_PROJECT` still works as an override.
 2. **Confirm the project resolves.** Run `python <path>/orch.py status --json`. If it
    errors with `can't infer the project from this directory`, this checkout isn't linked
    → run `python <path>/orch.py link <project>` once here (ask the human the project
-   name if unsure), then retry.
+   name if unsure), then retry. **Never run `link` from inside a worktree** — it
+   rebinds the project's shared root to wherever it's run; the CLI itself now refuses
+   this, but you should only ever be running from the main checkout anyway (see step 1).
 
 ## Autonomous half (every cycle, no human needed)
 
@@ -48,10 +50,25 @@ relaunch. `ORCH_PROJECT` still works as an override.
    - Run the test suite on the merged (or resolved) result.
    - Merge/resolve clean and tests pass → update the linked Linear issue (via the Linear
      MCP), then `orch task update --task <id> --status merged`.
-   - **Clean up the worktree.** Read the task's `worktree` field (from the `orch
-     status --json` you already have). If it's set: `git worktree remove <worktree>
-     --force`, then `git branch -d <branch>`. If `worktree` is empty (the task was
-     never isolated, or is from before this convention), skip — nothing to remove.
+   - **Clean up the worktree — best-effort, never blocking.** Read the task's
+     `worktree` field (from the `orch status --json` you already have). If it's empty
+     (never isolated, or from before this convention), skip — nothing to remove.
+     Otherwise: `git worktree remove <worktree>` — **no `--force`.**
+     - Succeeds → `git branch -d <branch>`. Done.
+     - Fails because of uncommitted/untracked changes (shouldn't happen after
+       `/checkpoint`, but is a real signal if it does) →
+       `orch post --agent orchestrator --task <id> --kind warning --msg "<worktree>
+       has uncommitted changes, left in place — investigate before deleting"`. Do not
+       force-delete, and do not delete the branch either — it's still checked out
+       there.
+     - Fails because the directory is in use (the worker's session is likely still
+       parked there — common on Windows, where a live cwd can't be deleted) →
+       `orch post --agent orchestrator --task <id> --kind note --msg "<worktree>
+       cleanup deferred, directory in use"`. Leave it — no retry loop. The human
+       sweeps leftover `.claude/worktrees/*` directories by hand once the relevant
+       session is closed, then `git worktree prune` reconciles git's metadata.
+   - **Either way, this never blocks the task's `merged` status** — cleanup is disk
+     hygiene, not correctness; the merge and tests already succeeded.
    - Tests fail after a clean/resolved merge → **restore `main`:**
      `git reset --hard <rollback point from above>` — do not leave a red `main` for
      other agents to branch off of. (Skip this if you already `git merge --abort`ed for
