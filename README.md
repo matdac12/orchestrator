@@ -101,7 +101,8 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 | `init <name>` | register a project |
 | `link <name>` | bind the current directory to a project, so commands run here (and in worktrees under it) infer it automatically — no `--project`/env needed |
 | `task add` | create a task (`--agent --title [--context --status --issue --branch --worktree]`); default status `queued` |
-| `task update` (alias `task amend`) | amend a live task (`--task <id> [--status --branch --issue --plan --context]`) |
+| `task update` (alias `task amend`) | amend a live task (`--task <id> [--status --branch --worktree --issue --plan --context]`) |
+| `deps` | fast-sync `node_modules` into the current worktree: hardlinks from the linked project root when `package-lock.json` matches (near-instant), else runs `npm ci`; no-op if not an npm project or `node_modules` is already present |
 | `next --agent A [--json]` | the agent's single active task, or empty |
 | `claim --agent A [--json]` | atomically take the agent's oldest `queued` task (→ `discussing`) |
 | `report --status S [--msg --agent --branch]` | worker shortcut: post `executing\|done\|blocked\|note`; agent from `ORCH_AGENT`; `done` auto-detects branch (never records `main`/`master`); `blocked` pings you |
@@ -113,7 +114,8 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 | `notify --msg ... [--title ...]` | send a Telegram ping (dry-run if no token) |
 | `serve [--port]` | on-demand web dashboard (defaults to the only project if there is one) |
 
-**Waiting on the human.** Posting `needs_discussion`, `blocker`, or `needs_human`
+**Waiting on the human.** Posting `needs_discussion`, `blocker`, or `needs_human` — or
+reporting a `blocked` status (`orch report --status blocked` / `/report blocked ...`) —
 raises a `needs_human` flag on the task; `status` then lists those agents under
 `WAITING ON YOU: A (reason), …` (also highlighted on the dashboard, which shows a
 connected/disconnected health indicator). The flag clears automatically when the task
@@ -174,6 +176,38 @@ directory (`orch link myproject`, see [Getting started](#getting-started)) and w
 pass `--agent A` themselves. If you prefer env vars, `ORCH_PROJECT` (and `ORCH_AGENT`)
 still override resolution when set — but they must be exported **before** `claude`
 launches, since env vars set from inside a session do not persist between commands.
+
+## Recommended: git safety hook
+
+Worker/orchestrator agents run unattended for long stretches — nobody is watching the
+moment a command actually executes. `hooks/git_guardrails.py` is a `PreToolUse` hook
+that blocks the small set of git commands that destroy history or uncommitted work
+outright: force push, `reset --hard`, `clean -f`, `branch -D`, and `checkout .` /
+`restore .`. It's **not installed by default** — this repo only ships the script; you
+decide whether and where to wire it in (globally in `~/.claude/settings.json` so it
+covers every agent regardless of target project, or per-project if you'd rather scope
+it narrower):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python C:/Users/MattiaDaCampo/Documents/orchestrator/hooks/git_guardrails.py"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+It only inspects `Bash` tool calls and only matches the specific destructive patterns
+above — normal git usage (commit, push, merge, checkout a branch, etc.) is unaffected.
 
 ## Telegram notifications
 

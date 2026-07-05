@@ -46,7 +46,8 @@ def cmd_task_add(conn, args):
 def cmd_task_update(conn, args):
     db.update_task(conn, args.task, status=args.status,
                    branch=args.branch, issue_ref=args.issue,
-                   plan_path=args.plan, context=args.context)
+                   plan_path=args.plan, context=args.context,
+                   worktree=args.worktree)
     print(f"task {args.task} updated")
     return 0
 
@@ -164,6 +165,17 @@ def cmd_wait(conn, args):
     return 0 if changed else 2
 
 
+def cmd_deps(conn, args):
+    from orch import deps as deps_mod
+    try:
+        msg = deps_mod.sync(conn, _project(conn, args))
+    except RuntimeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(msg)
+    return 0
+
+
 def cmd_prompt(conn, args):
     from orch import prompt as prompt_mod
     project = _project(conn, args)
@@ -205,6 +217,7 @@ def build_parser():
     tu.add_argument("--task", type=int, required=True)
     tu.add_argument("--status")
     tu.add_argument("--branch")
+    tu.add_argument("--worktree")
     tu.add_argument("--issue")
     tu.add_argument("--plan")
     tu.add_argument("--context")
@@ -270,6 +283,10 @@ def build_parser():
     pw.add_argument("--timeout", type=float, default=300.0)
     pw.add_argument("--interval", type=float, default=2.0)
     pw.set_defaults(func=cmd_wait)
+
+    pd = sub.add_parser("deps")
+    pd.add_argument("--project")
+    pd.set_defaults(func=cmd_deps)
 
     pp2 = sub.add_parser("prompt")
     pp2.add_argument("--project")

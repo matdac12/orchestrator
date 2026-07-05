@@ -59,6 +59,10 @@ once it's linked, so you need NO env vars and NO relaunch.
      `python <path>/orch.py task update --task <id> --worktree <new-path>`.
    - If creation fails (e.g. a sandboxed environment denies it), work in place and
      mention the fallback in your next `/report`.
+   - **Sync dependencies fast:** `python <path>/orch.py deps`. Hardlinks `node_modules`
+     from the project root when the lockfile matches (near-instant); otherwise runs a
+     real `npm ci`. Safe to call every cycle — it no-ops if `node_modules` is already
+     here (resumed task) or this isn't an npm project.
 
 3. **Branch on `status`:**
 

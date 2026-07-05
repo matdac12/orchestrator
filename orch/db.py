@@ -58,22 +58,32 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _add_column(conn, table, ddl):
+    """ALTER TABLE ADD COLUMN, tolerating a concurrent migration: two agents
+    can both see the column missing and both attempt to add it (e.g. A/B/C
+    all starting at once against a fresh/legacy DB); the loser's ALTER must
+    not crash the whole command."""
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+    except sqlite3.OperationalError as e:
+        if "duplicate column" not in str(e).lower():
+            raise
+
+
 def _migrate(conn):
     """Add columns introduced after the initial schema to existing DBs."""
     cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)")}
     if "needs_human" not in cols:
-        conn.execute(
-            "ALTER TABLE tasks ADD COLUMN needs_human INTEGER NOT NULL "
-            "DEFAULT 0")
+        _add_column(conn, "tasks", "needs_human INTEGER NOT NULL DEFAULT 0")
     if "needs_human_reason" not in cols:
-        conn.execute("ALTER TABLE tasks ADD COLUMN needs_human_reason TEXT")
+        _add_column(conn, "tasks", "needs_human_reason TEXT")
     pcols = {r[1] for r in conn.execute("PRAGMA table_info(projects)")}
     if pcols and "path" not in pcols:
         # Filesystem root bound to the project via `orch link`, so the CLI can
         # infer the project from the working directory (multi-project safe).
         # `pcols` is empty only when the projects table doesn't exist yet
         # (e.g. an isolated migration test); skip then.
-        conn.execute("ALTER TABLE projects ADD COLUMN path TEXT")
+        _add_column(conn, "projects", "path TEXT")
     conn.commit()
 
 
@@ -187,7 +197,7 @@ def add_task(conn, project, agent, title, issue_ref=None, branch=None,
 
 
 def update_task(conn, task_id, status=None, branch=None, issue_ref=None,
-                plan_path=None, context=None):
+                plan_path=None, context=None, worktree=None):
     if status is not None and status not in TASK_STATUSES:
         raise ValueError(
             f"invalid status '{status}', expected one of {TASK_STATUSES}")
@@ -201,6 +211,8 @@ def update_task(conn, task_id, status=None, branch=None, issue_ref=None,
         sets.append("status = ?"); params.append(status)
     if branch is not None:
         sets.append("branch = ?"); params.append(branch)
+    if worktree is not None:
+        sets.append("worktree = ?"); params.append(worktree)
     if issue_ref is not None:
         sets.append("issue_ref = ?"); params.append(issue_ref)
     if plan_path is not None:
@@ -271,7 +283,11 @@ def post_event(conn, project, agent, kind="status", message="",
                 sets.append("status = ?"); params.append(status)
             if branch is not None:
                 sets.append("branch = ?"); params.append(branch)
-            if kind in RAISE_HUMAN_KINDS:
+            if kind in RAISE_HUMAN_KINDS or status == "blocked":
+                # `status="blocked"` arrives with kind="status" from
+                # orch.report (never "blocker"), so it must raise the flag
+                # here too or a blocked worker never surfaces as WAITING ON
+                # YOU.
                 sets.append("needs_human = 1")
                 sets.append("needs_human_reason = ?"); params.append(message)
             elif status in CLEAR_HUMAN_STATUSES:
