@@ -92,7 +92,9 @@ Base: <base ref>   Sandbox: <SANDBOX_URL>   Missions: <n>
 **Verdict: ⚠ 1 of 2 missions failed.**
 ```
 
-Then report inline: findings **ranked most-severe first**, with the key screenshot shown for UI failures, the repro path, and the fix hint. Keep it tight — the user wants the verdict and the proof, not a narration of every click.
+Then produce the **rich report** (full steps in `reference/reporting.md`): write `findings.json` to `EVIDENCE_DIR`, run `node "$SKILL_DIR/scripts/build-report.js" "$EVIDENCE_DIR"` to generate a self-contained `review.html` (screenshots inlined, a storyboard per mission), and — when the `Artifact` tool is available — publish it for a shareable link (favicon `🔎`). `REVIEW.md` stays for agents; `review.html` is the human view.
+
+Then report inline: findings **ranked most-severe first**, with the key screenshot shown for UI failures, the repro path, and the fix hint. Keep it tight — the user wants the verdict and the proof, not a narration of every click. If you published an artifact, give them the link.
 
 Finally `sandbox.sh down` (base image stays cached).
 
