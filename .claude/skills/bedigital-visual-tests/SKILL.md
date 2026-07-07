@@ -87,7 +87,7 @@ The autonomous review flow. Full playbook in **`reference/reviewing.md`**; in sh
 - **PLAN** (you, the agent running the skill — the *planner*): read `git diff <base>...HEAD` + the commit/PR message + repo routes + the optional brief, and produce a few **targeted adversarial missions** (each tied to the diff). Mission schema + rules are in `reference/reviewing.md`.
 - **GATE**: interactive by default — show the mission list, let the user approve/edit/drop/add. With `--auto`, skip and proceed. (This *is* how you steer — there's no separate guided mode.)
 - **EXECUTE** (sequential, one mission at a time): `sandbox.sh reset` (clean seeded DB) → spawn **one delegate subagent** (model = recipe `DELEGATE_MODEL`, default Sonnet 5) with the mission + `SANDBOX_URL` + `EVIDENCE_DIR` → it drives agent-browser per `reference/driving-the-app.md` and returns a finding (pass → evidence; fail → evidence + runnable repro + short fix suggestion).
-- **AGGREGATE**: write `REVIEW.md` into `EVIDENCE_DIR` and report inline, findings ranked most-severe first, screenshots for UI failures.
+- **AGGREGATE**: write `REVIEW.md` (agent-facing) into `EVIDENCE_DIR`, then build a self-contained **`review.html`** (screenshots inlined, a storyboard per mission) via `scripts/build-report.js` and **publish it as a shareable Artifact** when the `Artifact` tool is available — see `reference/reporting.md`. Report inline, findings ranked most-severe first, with the artifact link.
 
 **Model policy:** the planner runs at the *session* model (launch the skill under Opus for good missions); delegates are spawned as `DELEGATE_MODEL` subagents. Both set in `recipe.env`.
 
@@ -113,10 +113,12 @@ The autonomous review flow. Full playbook in **`reference/reviewing.md`**; in sh
 ## Files
 
 - `scripts/sandbox.sh` — deterministic Docker mechanics (status/onboard/up/reset/down/nuke)
+- `scripts/build-report.js` — Node (no deps): findings.json + evidence → self-contained `review.html`
 - `templates/recipe.env.example` — the recipe schema, documented (incl. model policy + reset)
 - `templates/sandbox.compose.example.yml` — sanitizing-override + self-contained examples
 - `templates/Dockerfile.base.example` — fallback base image when the repo has no Docker assets
 - `reference/onboarding.md` — stack detection signal ladder + authoring the recipe + secrets
 - `reference/reviewing.md` — the review-mode playbook: planner (diff → missions), delegate (drive + repro + fix), aggregator (REVIEW.md)
+- `reference/reporting.md` — the rich report: findings.json → `review.html` (inlined screenshots + storyboard) → published Artifact
 - `reference/driving-the-app.md` — agent-browser usage + evidence conventions + REPORT.md format
 - `reference/gotchas.md` — hard-won failure modes and their fixes
