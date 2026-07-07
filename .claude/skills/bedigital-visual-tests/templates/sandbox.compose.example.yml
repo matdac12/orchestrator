@@ -7,24 +7,33 @@
 # Set BASE_COMPOSE=docker-compose.yml in recipe.env. This file only OVERRIDES.
 # ============================================================================
 #
+# GOTCHA — Compose CONCATENATES list fields (ports, volumes) across files; it
+# does NOT replace them. An empty `ports: []` / `volumes: []` therefore does
+# NOT drop the base's entries — the base's host bind-mount and published DB
+# ports survive, defeating the whole sanitization. To actually RESET an
+# inherited list you MUST tag it with `!reset` (drop it) or `!override` (replace
+# it wholesale). Requires Compose 2.24+ (this repo uses a modern Docker Compose).
+#
 # services:
 #   frontend:                       # == APP_SERVICE
-#     ports: ["0:3000"]             # ephemeral host port (0 = Docker picks free); == APP_PORT
+#     ports: !override ["0:3000"]   # REPLACE the base's ports (don't append); 0 = Docker
+#                                   # picks a free host port; == APP_PORT
 #     container_name: bdvt-${BDVT_RUN}-frontend  # ONLY if the base sets a fixed name.
 #                                   # Fixed container_name is GLOBAL and breaks per-run
 #                                   # isolation; sandbox.sh exports BDVT_RUN per run.
 #     environment:
 #       # Throwaway values — never rely on the developer's .env being present.
 #       AUTH_COOKIE_SECURE: "false" # accept session cookie over HTTP on localhost
-#     volumes: []                   # drop host source bind-mounts: test the built image
+#     volumes: !reset []            # DROP the base's host source bind-mounts entirely:
+#                                   # test the built image, not the working tree.
 #   backend:
-#     ports: ["0:8000"]
+#     ports: !override ["0:8000"]
 #     container_name: bdvt-${BDVT_RUN}-backend
 #     environment:
 #       JWT_PRIVATE_KEY: "dev-only-throwaway"   # see reference/gotchas.md on secrets
 #   postgres:
-#     ports: []                     # don't publish DB — reach it over the compose network
-#     container_name: bdvt-${BDVT_RUN}-postgres
+#     ports: !reset []              # DROP any published DB port — reach it over the
+#                                   # compose network only (a bare `[]` would NOT drop it)
 #   # dev-only services (mailhog, docs, etc.): disable via profiles so they don't start
 #   mailhog:
 #     profiles: ["donotstart"]

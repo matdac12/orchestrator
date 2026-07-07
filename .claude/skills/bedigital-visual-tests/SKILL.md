@@ -5,6 +5,8 @@ description: Use when you want to visually QA work you just built before merging
 
 # bedigital-visual-tests
 
+> **TRUST BOUNDARY — read before running on a repo you didn't write.** This skill executes the target repo's **committed `.bedigital-visual-tests/recipe.env` as a shell script on your host** (`sandbox.sh` does `source recipe.env`), and its `RESET_CMD` runs via `bash -c` on the host too — neither is sandboxed inside Docker. Only the app code is isolated; the recipe is not. A malicious recipe could run arbitrary commands on your machine. **Only run this skill on repositories you trust.** (Safer for untrusted repos: run reset in-container, and review `recipe.env` before the first `up`.)
+
 ## Overview
 
 Spin the repo you're working on up in a **fresh, isolated Docker sandbox** built from your **committed** code, then drive a **real browser** through it to visually verify what you built — capturing screenshots, console, and network as evidence.
