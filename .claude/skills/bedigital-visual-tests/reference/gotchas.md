@@ -33,3 +33,9 @@ Running `next dev` on a bind-mounted working tree is faster but tests uncommitte
 
 ## Port assumptions
 The host port is **ephemeral per run**. Always read `SANDBOX_URL` from `up`; never hard-code 3000.
+
+## Review mode: missions mutate state → reset between them
+Adversarial missions create/delete/edit data. Two missions against the same live app + DB corrupt each other's assumptions, so review mode runs missions **sequentially** and calls `sandbox.sh reset` (fresh seeded DB, app stays up) before each one. Never fan missions out in parallel against one sandbox. The default `reset` drops the data services + their anonymous volumes so the image's `initdb`/seed re-runs (SHAPE B); a repo whose DB uses a **named** volume or a migrate/seed profile must set `RESET_CMD` in the recipe (SHAPE A) or the reset won't actually wipe the data.
+
+## Review mode: keep the mission list small
+Each mission is a real delegate subagent (Sonnet 5 by default) plus a sandbox reset — cost and wall-clock scale with mission count, and they run one at a time. Prefer 2–5 sharp, diff-scoped missions over a broad sweep. If you cap coverage, say so in the report.

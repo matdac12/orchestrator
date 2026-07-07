@@ -5,6 +5,7 @@
 #   status   is this repo onboarded and is the base current?
 #   onboard  build the base image (deps baked in), stamp the lockfile hash
 #   up       spin a fresh, isolated sandbox from COMMITTED code; print its URL
+#   reset    restore a clean seeded DB on the active sandbox (app stays up)
 #   down     tear down the last run's sandbox
 #   nuke     also drop the base image / stamp (force a re-onboard)
 #
@@ -35,6 +36,8 @@ load_recipe() {
   #   HEALTH_PATH   path polled on the published port for 200   (default /)
   #   LOCKFILES     space-separated lockfile globs for the hash (required)
   #   BASE_COMPOSE  repo compose to layer the override under    (optional)
+  #   DATA_SERVICES stateful services `reset` recreates          (default postgres)
+  #   RESET_CMD     custom reseed command for `reset`            (optional; SHAPE A)
   # shellcheck disable=SC1090
   source "$RECIPE"
   : "${APP_SERVICE:?recipe missing APP_SERVICE}"
@@ -42,6 +45,8 @@ load_recipe() {
   : "${LOCKFILES:?recipe missing LOCKFILES}"
   HEALTH_PATH="${HEALTH_PATH:-/}"
   BASE_COMPOSE="${BASE_COMPOSE:-}"
+  DATA_SERVICES="${DATA_SERVICES:-postgres}"
+  RESET_CMD="${RESET_CMD:-}"
 }
 
 repo_slug() { basename "$(git rev-parse --show-toplevel)" | tr '[:upper:] ' '[:lower:]-'; }
@@ -132,7 +137,9 @@ cmd_up() {
   [ -f "$BVT_DIR/Dockerfile.base" ]    && cp -f "$BVT_DIR/Dockerfile.base" "$wt/$BVT_DIR"/
   [ -f "$BVT_DIR/Dockerfile.sandbox" ] && cp -f "$BVT_DIR/Dockerfile.sandbox" "$wt/$BVT_DIR"/
 
-  echo "$proj"$'\n'"$wt" > "$LAST_RUN"
+  # .last-run: line1 project, line2 worktree, line3 run id (reset needs the run
+  # id to re-interpolate ${BDVT_RUN} container names when recreating services).
+  printf '%s\n%s\n%s\n' "$proj" "$wt" "$run" > "$LAST_RUN"
 
   local cf; mapfile -t cf < <(compose_files)
   echo ">> Spinning sandbox (project $proj, ephemeral port)..."
@@ -184,6 +191,39 @@ cmd_down() {
   echo ">> Torn down $proj (base image kept)."
 }
 
+cmd_reset() {
+  # Restore a clean, seeded DB between missions without rebuilding the sandbox.
+  # Adversarial missions mutate state; this gives each one an identical slate.
+  require_repo; load_recipe
+  [ -f "$LAST_RUN" ] || die "no active sandbox to reset — run 'up' first"
+  local proj wt run; proj=$(sed -n 1p "$LAST_RUN"); wt=$(sed -n 2p "$LAST_RUN"); run=$(sed -n 3p "$LAST_RUN")
+  [ -n "$run" ] || run="${proj#bdvt-$(repo_slug)-}"
+  [ -d "$wt" ] || die "recorded worktree missing ($wt) — run 'up' again"
+  local cf; mapfile -t cf < <(compose_files)
+  echo ">> Resetting sandbox data (fresh seeded DB; app stays up)..."
+  (
+    cd "$wt"
+    export BDVT_RUN="$run"
+    if [ -n "$RESET_CMD" ]; then
+      # SHAPE A / custom: recipe author's reseed command. $COMPOSE and $PROJ are
+      # provided; e.g. RESET_CMD='$COMPOSE --profile seed run --rm seed'
+      COMPOSE="docker compose -p $proj ${cf[*]}" PROJ="$proj" bash -c "$RESET_CMD"
+    else
+      # Default (SHAPE B): drop the data services + their anonymous volumes so the
+      # image's initdb/seed re-runs on recreate. --no-deps so compose does NOT
+      # touch the app container — restarting/recreating it would reassign its
+      # ephemeral host port and invalidate the SANDBOX_URL already in use. The app
+      # reconnects lazily on its next query (its connection pool must tolerate a
+      # dropped DB — a production-grade pool does; see gotchas.md).
+      # shellcheck disable=SC2086
+      docker compose -p "$proj" "${cf[@]}" rm -v -sf $DATA_SERVICES
+      # shellcheck disable=SC2086
+      docker compose -p "$proj" "${cf[@]}" up -d --no-deps $DATA_SERVICES
+    fi
+  )
+  echo ">> Reset done — DB reseeded."
+}
+
 cmd_nuke() {
   require_repo; load_recipe
   cmd_down || true
@@ -199,7 +239,8 @@ case "${1:-}" in
   status)  cmd_status ;;
   onboard) cmd_onboard ;;
   up)      cmd_up ;;
+  reset)   cmd_reset ;;
   down)    cmd_down ;;
   nuke)    cmd_nuke ;;
-  *) echo "usage: sandbox.sh {status|onboard|up|down|nuke}" >&2; exit 2 ;;
+  *) echo "usage: sandbox.sh {status|onboard|up|reset|down|nuke}" >&2; exit 2 ;;
 esac
