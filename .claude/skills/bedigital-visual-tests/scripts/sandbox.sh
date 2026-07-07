@@ -39,9 +39,19 @@ load_recipe() {
   #   BASE_COMPOSE  repo compose to layer the override under    (optional)
   #   DATA_SERVICES stateful services `reset` recreates          (default postgres)
   #   RESET_CMD     custom reseed command for `reset`            (optional; SHAPE A)
+  #   -- v5 DB seeding (optional; unset ⇒ image initdb only, unchanged) --
+  #   SEED_STRATEGY initdb | migrations | synthetic              (default initdb)
+  #   SEED_SERVICE  compose service whose image runs the seed    (default APP_SERVICE)
+  #   MIGRATE_CMD   in-container command to build the schema      (optional)
+  #   SEED_CMD      in-container command to load data + test user (optional)
+  #   -- v5 auth (optional; unset ⇒ no-auth app, unchanged) --
+  #   TEST_USER/TEST_PASSWORD  throwaway seeded creds (sandbox-only → safe to commit)
+  #   LOGIN_PATH/POST_LOGIN_PATH  where the delegate logs in / lands
   # TRUST: this sources the target repo's committed recipe as SHELL on the HOST
   # (and RESET_CMD runs via `bash -c` on the host) — NOT sandboxed in Docker.
-  # Only run this skill on repositories you trust. See SKILL.md / onboarding.md.
+  # MIGRATE_CMD/SEED_CMD, by contrast, run IN-CONTAINER (`compose run`) against the
+  # throwaway DB — the host is not their execution context. Only run this skill on
+  # repositories you trust. See SKILL.md / onboarding.md.
   # shellcheck disable=SC1090
   source "$RECIPE"
   : "${APP_SERVICE:?recipe missing APP_SERVICE}"
@@ -51,6 +61,41 @@ load_recipe() {
   BASE_COMPOSE="${BASE_COMPOSE:-}"
   DATA_SERVICES="${DATA_SERVICES:-postgres}"
   RESET_CMD="${RESET_CMD:-}"
+  SEED_STRATEGY="${SEED_STRATEGY:-initdb}"
+  SEED_SERVICE="${SEED_SERVICE:-}"
+  MIGRATE_CMD="${MIGRATE_CMD:-}"
+  SEED_CMD="${SEED_CMD:-}"
+  TEST_USER="${TEST_USER:-}"
+  TEST_PASSWORD="${TEST_PASSWORD:-}"
+  LOGIN_PATH="${LOGIN_PATH:-}"
+  POST_LOGIN_PATH="${POST_LOGIN_PATH:-}"
+}
+
+# Run the recipe's migration/seed commands IN-CONTAINER against the throwaway DB.
+# No-op for SHAPE B's default (SEED_STRATEGY=initdb) — the Postgres image's initdb
+# already seeds when its anonymous volume is (re)created, so existing recipes are
+# unaffected. For `migrations`/`synthetic`, runs MIGRATE_CMD then SEED_CMD as a
+# one-shot `compose run` on the sandbox network, using the SEED_SERVICE image
+# (default: the app image, which typically carries the migration CLI). Callers MUST
+# be cd'd into the run's HEAD worktree with BASE_IMAGE/BDVT_RUN exported so the
+# compose spec resolves — same context as the surrounding `up`/`reset` compose calls.
+# $1 = compose project name. Rebuilds the -f file list itself (pure, reads globals).
+seed_db() {
+  local proj="$1"
+  [ "$SEED_STRATEGY" != initdb ] || return 0
+  local script=""
+  [ -n "$MIGRATE_CMD" ] && script="$MIGRATE_CMD"
+  [ -n "$SEED_CMD" ] && script="${script:+$script && }$SEED_CMD"
+  if [ -z "$script" ]; then
+    echo ">> SEED_STRATEGY=$SEED_STRATEGY but neither MIGRATE_CMD nor SEED_CMD set — nothing to seed." >&2
+    return 0
+  fi
+  local svc="${SEED_SERVICE:-$APP_SERVICE}"
+  local cf; mapfile -t cf < <(compose_files)
+  echo ">> Seeding DB in-container ($SEED_STRATEGY) via '$svc': $script"
+  # --build so the seed image exists before the app's own build; --no-deps so we
+  # don't restart the already-healthy data services (which would reassign ports).
+  docker compose -p "$proj" "${cf[@]}" run --rm --build --no-deps "$svc" sh -lc "$script"
 }
 
 repo_slug() { basename "$(git rev-parse --show-toplevel)" | tr '[:upper:] ' '[:lower:]-'; }
@@ -209,8 +254,21 @@ cmd_up() {
     cd "$wt"
     # BDVT_RUN lets the override interpolate per-run-unique container names
     # (fixed container_name is global and breaks isolation — see gotchas.md).
-    BASE_IMAGE="$baseimg" BDVT_RUN="$run" DOCKER_BUILDKIT=1 \
+    export BASE_IMAGE="$baseimg" BDVT_RUN="$run" DOCKER_BUILDKIT=1
+    if [ "$SEED_STRATEGY" != initdb ]; then
+      # Strategy needs the schema to exist BEFORE the app boots: bring up just the
+      # data services (health-gated), seed them in-container, then start the app.
+      # set -f so a multi-service DATA_SERVICES isn't pathname-expanded.
+      set -f
+      # shellcheck disable=SC2086
+      docker compose -p "$proj" "${cf[@]}" up -d --wait $DATA_SERVICES
+      set +f
+      seed_db "$proj"
       docker compose -p "$proj" "${cf[@]}" up -d --build
+    else
+      # Default (initdb / no strategy): one-shot bring-up, image initdb seeds.
+      docker compose -p "$proj" "${cf[@]}" up -d --build
+    fi
   )
 
   # Ephemeral host port: the override maps "0:APP_PORT" so Docker picks a free
@@ -238,6 +296,13 @@ cmd_up() {
   echo ""
   echo "SANDBOX_URL=$url"
   echo "EVIDENCE_DIR=$evid"
+  # v5: surface the throwaway seeded creds so the planner can hand them to each
+  # delegate. Only the keys the recipe set are printed. These are sandbox-only,
+  # already committed in recipe.env → echoing them leaks nothing.
+  [ -n "$TEST_USER" ]       && echo "TEST_USER=$TEST_USER"
+  [ -n "$TEST_PASSWORD" ]   && echo "TEST_PASSWORD=$TEST_PASSWORD"
+  [ -n "$LOGIN_PATH" ]      && echo "LOGIN_PATH=$LOGIN_PATH"
+  [ -n "$POST_LOGIN_PATH" ] && echo "POST_LOGIN_PATH=$POST_LOGIN_PATH"
   echo ">> Ready. Drive it with agent-browser (reference/driving-the-app.md); 'down' when done."
 }
 
@@ -269,10 +334,13 @@ cmd_reset() {
   [ -n "$run" ] || run="${proj#bdvt-$(repo_slug)-}"
   [ -d "$wt" ] || die "recorded worktree missing ($wt) — run 'up' again"
   local cf; mapfile -t cf < <(compose_files)
+  # Resolve the base image NOW, from the real repo (inside $wt the slug/hash drift).
+  # seed_db's `run --build` needs it as the app image build-arg for migrations/synthetic.
+  local baseimg; baseimg=$(base_image)
   echo ">> Resetting sandbox data (fresh seeded DB; app stays up)..."
   (
     cd "$wt"
-    export BDVT_RUN="$run"
+    export BDVT_RUN="$run" BASE_IMAGE="$baseimg"
     if [ -n "$RESET_CMD" ]; then
       # SHAPE A / custom: recipe author's reseed command. $COMPOSE and $PROJ are
       # provided; e.g. RESET_CMD='$COMPOSE --profile seed run --rm seed'
@@ -289,9 +357,14 @@ cmd_reset() {
       set -f
       # shellcheck disable=SC2086
       docker compose -p "$proj" "${cf[@]}" rm -v -sf $DATA_SERVICES
+      # --wait so the DB is healthy (initdb finished) before we (re)seed on top.
       # shellcheck disable=SC2086
-      docker compose -p "$proj" "${cf[@]}" up -d --no-deps $DATA_SERVICES
+      docker compose -p "$proj" "${cf[@]}" up -d --no-deps --wait $DATA_SERVICES
       set +f
+      # Re-run migrations/seed: the dropped volume took the schema with it, so an
+      # initdb-only sandbox is already reseeded, but a migrations/synthetic one
+      # needs its schema+data rebuilt. seed_db is a no-op for SEED_STRATEGY=initdb.
+      seed_db "$proj"
     fi
   )
   echo ">> Reset done — DB reseeded."
