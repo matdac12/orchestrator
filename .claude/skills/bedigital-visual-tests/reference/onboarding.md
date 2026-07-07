@@ -84,6 +84,11 @@ Pick `SEED_STRATEGY` in the recipe:
   the throwaway DB before the app boots. Add `SEED_CMD` to load data + the
   confirmed test user.
 - **`synthetic`** — just `SEED_CMD`: fake data + the confirmed test user.
+- **`snapshot`** — a **sanitized real-data snapshot** (opt-in; the sensitive path).
+  Runs `MIGRATE_CMD` (build the schema), then `SEED_CMD=node scripts/snapshot-and-mask.mjs`
+  which pulls a **scoped, read-only, PII-masked** slice of the real DB into the
+  sandbox at runtime. **Read `reference/snapshot.md` before enabling it — the
+  masking guardrails are non-negotiable.**
 
 `MIGRATE_CMD`/`SEED_CMD` run as a one-shot `docker compose run --rm` using
 `SEED_SERVICE` (default: the app service, whose image usually carries the
@@ -95,8 +100,8 @@ app must be **replicated locally** — add a throwaway `postgres` service to
 `sandbox.compose.yml`, point the app's `DATABASE_URL` at it, and migrate+seed that.
 **Never** inject the real/VPS `DATABASE_URL` into the sandbox: adversarial missions
 create/delete + `reset` data, and the report may be published as an Artifact.
-(The Phase-3 sanitized-snapshot strategy — opt-in, read-only pull, mask PII before
-it lands, load at runtime, scoped — is designed in the roadmap but not yet built.)
+The `snapshot` strategy is the ONLY sanctioned way to get real data into the
+sandbox, and only through the masking pipeline in `reference/snapshot.md`.
 
 `sandbox.sh reset` re-runs the seed after recreating the data services, so every
 mission still starts from an identical seeded slate.

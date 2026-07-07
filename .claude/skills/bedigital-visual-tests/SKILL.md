@@ -123,7 +123,9 @@ The autonomous review flow. Full playbook in **`reference/reviewing.md`**; in sh
 - `templates/Dockerfile.base.example` — fallback base image when the repo has no Docker assets
 - `reference/onboarding.md` — stack detection signal ladder + authoring the recipe + secrets + auth/seeding (§5)
 - `reference/supabase.md` — local-Supabase-in-sandbox playbook (v5 Phase 2): stack, confirmed-user seed via admin API, the NEXT_PUBLIC/ephemeral-port trap → server-side auth
+- `reference/snapshot.md` — sanitized real-data snapshot (v5 Phase 3): the OPT-IN masking guardrails (read-only pull, mask PII before it lands, load at runtime, scoped)
 - `templates/supabase.sandbox.compose.example.yml` + `templates/supabase/` (roles/jwt/gateway) + `templates/seed-supabase-user.mjs` — the Supabase sandbox stack
+- `templates/snapshot-and-mask.mjs` + `templates/snapshot.config.example.json` — the read-only, PII-masking snapshot tool + its config schema
 - `reference/reviewing.md` — the review-mode playbook: planner (diff → missions), delegate (drive + repro + fix), aggregator (REVIEW.md)
 - `reference/reporting.md` — the rich report: findings.json → `review.html` (inlined screenshots + storyboard) → published Artifact
 - `reference/driving-the-app.md` — agent-browser usage + evidence conventions + REPORT.md format

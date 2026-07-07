@@ -65,6 +65,18 @@ reporting (it also bites real reverse-proxy deploys): prefer a **relative** Loca
 `Host`/`X-Forwarded-Host` header, not from the socket. (We hit exactly this in the
 v5 dogfood.) Distinguish it from the recipe-side cookie/CORS issues below.
 
+## v5 snapshot: real data must be MASKED, runtime-loaded, and never committed/baked
+`SEED_STRATEGY=snapshot` is the only sanctioned way to get real data into the sandbox,
+and only through `reference/snapshot.md`'s masking pipeline. The traps that make it a
+leak if you get them wrong: (1) `SOURCE_DB_URL` is **runtime-injected**, never in
+`recipe.env`/compose — a committed real connection string is a credential leak; (2) PII
+is masked **in memory before any INSERT** — masking after load, or `keep`ing a PII
+column, leaks it into the sandbox and thus into screenshots/the published Artifact; (3)
+the snapshot loads **at runtime into the ephemeral DB** — never bake a dump into the base
+image (a cached layer is a frozen leak); (4) any `SNAPSHOT_DUMP` holds masked data only
+and its path **must be gitignored**; (5) tables are **scoped** (row-limited) — the tool
+refuses an unscoped table. When in doubt, don't enable it — synthetic seed is safe.
+
 ## v5 auth: "seeded user rejected" is a recipe bug, not a broken login
 If the login **form renders** but the seeded `TEST_USER`/`TEST_PASSWORD` is
 rejected, suspect the recipe/seed — not the product. Usual causes: the seed wrote

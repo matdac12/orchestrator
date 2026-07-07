@@ -1,0 +1,31 @@
+{
+  "_comment": "Masking config for SEED_STRATEGY=snapshot (v5 Phase 3). COMMIT this file — it holds NO secrets. Every table needs an explicit row `limit` (scoped). Every PII column must map to a mask strategy; `keep` columns pass through UNMASKED and are printed as a warning at run time. Strategies: email | name | phone | null | hash | redact | keep.",
+  "tables": [
+    {
+      "table": "public.users",
+      "limit": 200,
+      "orderBy": "id",
+      "columns": {
+        "id": "keep",
+        "email": "email",
+        "full_name": "name",
+        "phone": "phone",
+        "password_hash": "null",
+        "api_token": "null",
+        "created_at": "keep"
+      }
+    },
+    {
+      "table": "public.orders",
+      "limit": 500,
+      "orderBy": "id",
+      "columns": {
+        "id": "keep",
+        "user_id": "keep",
+        "shipping_address": "redact",
+        "total_cents": "keep",
+        "created_at": "keep"
+      }
+    }
+  ]
+}
