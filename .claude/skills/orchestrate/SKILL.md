@@ -25,7 +25,9 @@ relaunch. `ORCH_PROJECT` still works as an override.
 2. **Confirm the project resolves.** Run `python <path>/orch.py status --json`. If it
    errors with `can't infer the project from this directory`, this checkout isn't linked
    → run `python <path>/orch.py link <project>` once here (ask the human the project
-   name if unsure), then retry.
+   name if unsure), then retry. **Never run `link` from inside a worktree** — it
+   rebinds the project's shared root to wherever it's run; the CLI itself now refuses
+   this, but you should only ever be running from the main checkout anyway (see step 1).
 
 ## Autonomous half (every cycle, no human needed)
 
@@ -34,11 +36,43 @@ relaunch. `ORCH_PROJECT` still works as an override.
    events for `kind=warning` (a worker skipped/downgraded a step, e.g. Codex review):
    do not merge that branch until you have accounted for the warning.
 2. For each task with status `done`:
-   - Review the agent's `branch`. Merge it into `main`, then run the test suite on the
-     merged result.
-   - Merge clean and tests pass → update the linked Linear issue (via the Linear MCP),
-     then `orch task update --task <id> --status merged`.
-   - Merge conflicts OR tests fail → do NOT force it:
+   - **Note the rollback point first:** `git rev-parse main` — you need this to restore
+     `main` if the merge looks clean but tests fail. Never leave `main` red; only ever
+     advance it on a verified-green result.
+   - Review the agent's `branch`. Merge it into `main`.
+     - **Conflicts:** don't block immediately — attempt one disciplined resolve pass.
+       For each conflicting hunk, read the originating commit/PR intent on both sides
+       and preserve both where possible, then run typecheck → tests → format on the
+       result. If you can't confidently resolve a hunk (intent unclear, or it touches
+       files outside the task's declared boundaries), `git merge --abort` and treat it
+       as a conflict failure below — `main` was never touched, so there's nothing to
+       roll back.
+   - Run the test suite on the merged (or resolved) result.
+   - Merge/resolve clean and tests pass → update the linked Linear issue (via the Linear
+     MCP), then `orch task update --task <id> --status merged`.
+   - **Clean up the worktree — best-effort, never blocking.** Read the task's
+     `worktree` field (from the `orch status --json` you already have). If it's empty
+     (never isolated, or from before this convention), skip — nothing to remove.
+     Otherwise: `git worktree remove <worktree>` — **no `--force`.**
+     - Succeeds → `git branch -d <branch>`. Done.
+     - Fails because of uncommitted/untracked changes (shouldn't happen after
+       `/checkpoint`, but is a real signal if it does) →
+       `orch post --agent orchestrator --task <id> --kind warning --msg "<worktree>
+       has uncommitted changes, left in place — investigate before deleting"`. Do not
+       force-delete, and do not delete the branch either — it's still checked out
+       there.
+     - Fails because the directory is in use (the worker's session is likely still
+       parked there — common on Windows, where a live cwd can't be deleted) →
+       `orch post --agent orchestrator --task <id> --kind note --msg "<worktree>
+       cleanup deferred, directory in use"`. Leave it — no retry loop. The human
+       sweeps leftover `.claude/worktrees/*` directories by hand once the relevant
+       session is closed, then `git worktree prune` reconciles git's metadata.
+   - **Either way, this never blocks the task's `merged` status** — cleanup is disk
+     hygiene, not correctness; the merge and tests already succeeded.
+   - Tests fail after a clean/resolved merge → **restore `main`:**
+     `git reset --hard <rollback point from above>` — do not leave a red `main` for
+     other agents to branch off of. (Skip this if you already `git merge --abort`ed for
+     an unresolved conflict; there's nothing to restore.) Then, either way:
      `orch task update --task <id> --status blocked`,
      `orch post --agent orchestrator --task <id> --kind blocker --msg "<why>"`,
      `orch notify --msg "Merge blocked on task <id>: <why>" --title "Orchestrator needs input"`.

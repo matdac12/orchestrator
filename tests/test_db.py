@@ -71,6 +71,10 @@ class ProjectPathTest(unittest.TestCase):
 
 
 class RetryTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+
     def test_with_retry_recovers_from_locked(self):
         calls = {"n": 0}
 
@@ -80,7 +84,8 @@ class RetryTest(unittest.TestCase):
                 raise sqlite3.OperationalError("database is locked")
             return "ok"
 
-        self.assertEqual(db.with_retry(action, base_delay=0.0), "ok")
+        self.assertEqual(
+            db.with_retry(self.conn, action, base_delay=0.0), "ok")
         self.assertEqual(calls["n"], 3)
 
     def test_with_retry_reraises_other_errors(self):
@@ -88,7 +93,30 @@ class RetryTest(unittest.TestCase):
             raise sqlite3.OperationalError("no such table")
 
         with self.assertRaises(sqlite3.OperationalError):
-            db.with_retry(action, base_delay=0.0)
+            db.with_retry(self.conn, action, base_delay=0.0)
+
+    def test_with_retry_rolls_back_before_retrying(self):
+        # If the "locked" error fires at commit() rather than at the first
+        # write, the transaction is still open with that write already
+        # applied. Without a rollback, retrying re-runs the write a second
+        # time inside the same open transaction, leaving 2 rows once the
+        # retry finally commits instead of 1.
+        self.conn.execute("CREATE TABLE t (x TEXT)")
+        self.conn.commit()
+        calls = {"n": 0}
+
+        def action():
+            calls["n"] += 1
+            self.conn.execute("INSERT INTO t (x) VALUES ('row')")
+            if calls["n"] < 2:
+                raise sqlite3.OperationalError("database is locked")
+            self.conn.commit()
+            return "ok"
+
+        self.assertEqual(
+            db.with_retry(self.conn, action, base_delay=0.0), "ok")
+        rows = self.conn.execute("SELECT COUNT(*) FROM t").fetchone()[0]
+        self.assertEqual(rows, 1)
 
 
 class ProjectTest(unittest.TestCase):
@@ -155,6 +183,13 @@ class TaskTest(unittest.TestCase):
         self.assertEqual(row["status"], "merged")
         self.assertEqual(row["branch"], "feat/x")
         self.assertNotEqual(row["updated_at"], before)
+
+    def test_update_task_sets_worktree(self):
+        tid = db.add_task(self.conn, "demo", "B", "build X")
+        db.update_task(self.conn, tid, worktree="/repo/.claude/worktrees/b-x")
+        row = self.conn.execute(
+            "SELECT * FROM tasks WHERE id=?", (tid,)).fetchone()
+        self.assertEqual(row["worktree"], "/repo/.claude/worktrees/b-x")
 
     def test_update_task_sets_plan_and_context(self):
         tid = db.add_task(self.conn, "demo", "B", "build X")
@@ -246,6 +281,17 @@ class NeedsHumanTest(unittest.TestCase):
         self.assertEqual(row["needs_human"], 1)
         self.assertEqual(row["needs_human_reason"], "come brainstorm")
 
+    def test_blocked_status_raises_flag_even_with_status_kind(self):
+        # orch.report always posts blocked with kind="status" (never
+        # "blocker"), so the flag must be raised off the status too.
+        tid = db.add_task(self.conn, "demo", "A", "x", status="executing")
+        db.post_event(self.conn, "demo", "A", kind="status", status="blocked",
+                      message="need api key")
+        row = self._task(tid)
+        self.assertEqual(row["status"], "blocked")
+        self.assertEqual(row["needs_human"], 1)
+        self.assertEqual(row["needs_human_reason"], "need api key")
+
     def test_blocker_raises_flag(self):
         tid = db.add_task(self.conn, "demo", "A", "x", status="executing")
         db.post_event(self.conn, "demo", "A", kind="blocker",
@@ -287,6 +333,26 @@ class NeedsHumanTest(unittest.TestCase):
         self.assertTrue({"needs_human", "needs_human_reason"}.issubset(cols))
         # idempotent
         db._migrate(raw)
+        raw.close()
+
+    def test_migrate_tolerates_concurrent_duplicate_column(self):
+        # Simulates two agents starting at once against the same legacy DB:
+        # both see the column missing, both attempt to add it; the loser's
+        # ALTER must not raise.
+        path = os.path.join(self.tmp, "legacy2.db")
+        raw = sqlite3.connect(path)
+        raw.executescript(
+            "CREATE TABLE tasks (id INTEGER PRIMARY KEY, agent TEXT, "
+            "status TEXT, updated_at TEXT);")
+        raw.commit()
+        raw.execute("ALTER TABLE tasks ADD COLUMN needs_human INTEGER "
+                    "NOT NULL DEFAULT 0")
+        raw.commit()
+        # needs_human already exists as if another process just added it;
+        # _migrate must still succeed and add the remaining columns.
+        db._migrate(raw)
+        cols = {r[1] for r in raw.execute("PRAGMA table_info(tasks)")}
+        self.assertTrue({"needs_human", "needs_human_reason"}.issubset(cols))
         raw.close()
 
 

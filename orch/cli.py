@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 from orch import db
@@ -46,7 +47,8 @@ def cmd_task_add(conn, args):
 def cmd_task_update(conn, args):
     db.update_task(conn, args.task, status=args.status,
                    branch=args.branch, issue_ref=args.issue,
-                   plan_path=args.plan, context=args.context)
+                   plan_path=args.plan, context=args.context,
+                   worktree=args.worktree)
     print(f"task {args.task} updated")
     return 0
 
@@ -125,7 +127,38 @@ def cmd_post(conn, args):
     return 0
 
 
+def _is_inside_worktree(cwd):
+    """True if cwd is a git worktree other than the repo's main checkout —
+    ruling out a submodule, which also has its own private git-dir. Same
+    detection the work skill's isolation check uses:
+    `git rev-parse --git-dir` vs `--git-common-dir`."""
+    def _git(args):
+        try:
+            out = subprocess.run(
+                ["git", *args], cwd=cwd, capture_output=True, text=True,
+                timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return out.stdout.strip() if out.returncode == 0 else None
+
+    git_dir = _git(["rev-parse", "--git-dir"])
+    common_dir = _git(["rev-parse", "--git-common-dir"])
+    if git_dir is None or common_dir is None:
+        return False
+    norm = lambda p: os.path.normcase(os.path.abspath(os.path.join(cwd, p)))
+    if norm(git_dir) == norm(common_dir):
+        return False
+    if _git(["rev-parse", "--show-superproject-working-tree"]):
+        return False  # submodule, not a worktree
+    return True
+
+
 def cmd_link(conn, args):
+    if _is_inside_worktree(os.getcwd()):
+        print("error: refusing to link from inside a git worktree — cd to "
+              "the main checkout and run `orch link` there instead",
+              file=sys.stderr)
+        return 1
     db.require_project(conn, args.name)
     path = db.set_project_path(conn, args.name, os.getcwd())
     print(f"linked '{args.name}' to {path}")
@@ -162,6 +195,17 @@ def cmd_wait(conn, args):
                                  interval=args.interval)
     print("changed" if changed else "timeout")
     return 0 if changed else 2
+
+
+def cmd_deps(conn, args):
+    from orch import deps as deps_mod
+    try:
+        msg = deps_mod.sync(conn, _project(conn, args))
+    except RuntimeError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    print(msg)
+    return 0
 
 
 def cmd_prompt(conn, args):
@@ -205,6 +249,7 @@ def build_parser():
     tu.add_argument("--task", type=int, required=True)
     tu.add_argument("--status")
     tu.add_argument("--branch")
+    tu.add_argument("--worktree")
     tu.add_argument("--issue")
     tu.add_argument("--plan")
     tu.add_argument("--context")
@@ -270,6 +315,10 @@ def build_parser():
     pw.add_argument("--timeout", type=float, default=300.0)
     pw.add_argument("--interval", type=float, default=2.0)
     pw.set_defaults(func=cmd_wait)
+
+    pd = sub.add_parser("deps")
+    pd.add_argument("--project")
+    pd.set_defaults(func=cmd_deps)
 
     pp2 = sub.add_parser("prompt")
     pp2.add_argument("--project")

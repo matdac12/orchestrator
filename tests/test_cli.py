@@ -253,6 +253,31 @@ class CLITest(unittest.TestCase):
         out = run(["link", "ghost"], self.db, cwd=self.tmp)
         self.assertNotEqual(out.returncode, 0)
 
+    def test_link_refuses_inside_worktree(self):
+        run(["init", "alpha"], self.db)
+        repo = os.path.join(self.tmp, "repo")
+        os.makedirs(repo)
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.email", "t@t.com"], cwd=repo,
+                       check=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=repo,
+                       check=True)
+        open(os.path.join(repo, "f.txt"), "w").close()
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=repo,
+                       check=True)
+        worktree = os.path.join(self.tmp, "wt")
+        subprocess.run(["git", "worktree", "add", "-b", "feat/x", worktree],
+                       cwd=repo, check=True)
+
+        out = run(["link", "alpha"], self.db, cwd=worktree)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("worktree", out.stderr.lower())
+
+        # the main checkout of that same repo still links fine
+        ok = run(["link", "alpha"], self.db, cwd=repo)
+        self.assertEqual(ok.returncode, 0)
+
     def test_prompt_worker_is_self_contained(self):
         run(["init", "demo"], self.db)
         run(["task", "add", "--project", "demo", "--agent", "A",
