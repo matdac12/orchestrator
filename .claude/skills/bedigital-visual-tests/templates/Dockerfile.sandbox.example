@@ -1,0 +1,12 @@
+# .bedigital-visual-tests/Dockerfile.sandbox — the disposable per-run image (self-contained path).
+# FROM the golden base (deps already present), so this only adds source + builds.
+ARG BASE_IMAGE=bdvt-base:latest
+FROM ${BASE_IMAGE}
+
+WORKDIR /app
+# node_modules is already in /app from the base; .dockerignore keeps host copies out.
+COPY . .
+RUN pnpm build
+
+EXPOSE 3000
+CMD ["pnpm", "start", "-H", "0.0.0.0"]
