@@ -48,7 +48,8 @@ Rules for good missions:
 
 Spawn **one subagent per mission**, sequentially, using `DELEGATE_MODEL` from the recipe (default `claude-sonnet-5`). Before each delegate: `sandbox.sh reset` so it starts from a clean, seeded DB (adversarial missions mutate state).
 
-Give the delegate: the **mission**, the **`SANDBOX_URL`** and **`EVIDENCE_DIR`** from `up`, and a pointer to `reference/driving-the-app.md`. The delegate:
+Give the delegate: the **mission**, the **`SANDBOX_URL`** and **`EVIDENCE_DIR`** from `up`, the **seeded auth creds** if `up` printed them (`TEST_USER`/`TEST_PASSWORD`/`LOGIN_PATH`/`POST_LOGIN_PATH` — pass them verbatim so the delegate can log in), and a pointer to `reference/driving-the-app.md`. The delegate:
+- If the app has auth, **logs in first** through the real form with the seeded creds (per `driving-the-app.md` → "Logging in"), then runs the mission steps.
 - Drives the app with **agent-browser** per `driving-the-app.md` (screenshots each step into `EVIDENCE_DIR`, captures console + network, uses the seeded test user — never real creds).
 - Judges each step ✓ / ⚠ against the mission's `expected`, pushing adversarially (bad input, empty state, the boundary).
 - Returns a **finding**:

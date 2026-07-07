@@ -2,6 +2,38 @@
 
 After `sandbox.sh up` prints `SANDBOX_URL` and `EVIDENCE_DIR`, drive the running app with the **agent-browser** skill (invoke it; it's the preferred browser path). You are hitting the app on the host's published port — plain HTTP on `localhost`, so no container-networking or HTTPS-upgrade issues apply.
 
+## Logging in (v5)
+
+If the app gates pages behind auth, `up` prints the throwaway seeded creds
+alongside `SANDBOX_URL`:
+
+```
+SANDBOX_URL=http://localhost:49han
+TEST_USER=tester@sandbox.local
+TEST_PASSWORD=sandbox-only-pw
+LOGIN_PATH=/login
+POST_LOGIN_PATH=/
+```
+
+Log in **through the app's real form** before the mission steps:
+
+1. Navigate to `SANDBOX_URL + LOGIN_PATH`, screenshot `01-login.png`.
+2. Fill `TEST_USER` / `TEST_PASSWORD`, screenshot `02-login-filled.png`, submit.
+3. Wait for the post-login landing (`POST_LOGIN_PATH` if given, else any
+   authed page), screenshot `03-authed.png`. Confirm you're actually in (URL
+   changed off `LOGIN_PATH`, an authed element rendered).
+
+Rules:
+- Use **only** the seeded `TEST_USER`/`TEST_PASSWORD` — **never** real credentials,
+  never creds from a `.env` or a password manager.
+- If the login form is present but the seeded user is **rejected**, that's a
+  **recipe/seed bug** (wrong password hash format, user not confirmed, seed didn't
+  run) — not a product failure. Say so; don't report it as a broken login feature.
+- Cookie won't stick / blank network tab → `Secure`-flag-over-HTTP or CORS; see
+  `gotchas.md`. Also a recipe/sandbox issue, not the product.
+- A useful adversarial check for an auth change: hit an authed route **before**
+  logging in and confirm it redirects to `LOGIN_PATH` (proves the gate works).
+
 ## The loop, per step of the user's flow
 
 For a brief like *"log in, open the outbound page, click the new Export button"*:

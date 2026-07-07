@@ -40,5 +40,39 @@ The host port is **ephemeral per run**. Always read `SANDBOX_URL` from `up`; nev
 ## Review mode: missions mutate state → reset between them
 Adversarial missions create/delete/edit data. Two missions against the same live app + DB corrupt each other's assumptions, so review mode runs missions **sequentially** and calls `sandbox.sh reset` (fresh seeded DB, app stays up) before each one. Never fan missions out in parallel against one sandbox. The default `reset` drops the data services + their anonymous volumes so the image's `initdb`/seed re-runs (SHAPE B); a repo whose DB uses a **named** volume or a migrate/seed profile must set `RESET_CMD` in the recipe (SHAPE A) or the reset won't actually wipe the data.
 
+## v5 seeding: schema must exist before the app boots
+With `SEED_STRATEGY=migrations`/`synthetic`, `up` brings the **data services up
+first** (health-gated), runs `MIGRATE_CMD`/`SEED_CMD` **in-container**
+(`compose run --rm --build --no-deps` on `SEED_SERVICE`, default the app image),
+**then** starts the app. Don't collapse that back into one `up` — an app that
+queries a not-yet-migrated DB on boot will fail its health-gate. `reset` re-runs
+the same seed after recreating the data services, because the dropped volume took
+the schema with it (initdb-only sandboxes need no re-seed, so `seed_db` no-ops
+for `SEED_STRATEGY=initdb`). Never inject a real/VPS `DATABASE_URL` into the
+sandbox — replicate that DB locally (a throwaway `postgres` service) and point
+`DATABASE_URL` at the replica; adversarial missions mutate + `reset` data and the
+report can be published as an Artifact.
+
+## v5 auth: post-login redirect points at the container origin, not localhost
+An app that builds an **absolute** redirect from the request URL (e.g. Next's
+`new URL(req.url).origin`, `request.nextUrl.origin`) resolves it to the app's
+**internal** bind — `http://0.0.0.0:3000` / `http://<service>:3000` — because that's
+where the server actually listens. In the sandbox the browser is on the **published**
+`http://localhost:<ephemeral>` port, so following that Location dead-ends and login
+looks broken even though auth succeeded. This is usually a **product** bug worth
+reporting (it also bites real reverse-proxy deploys): prefer a **relative** Location
+(browsers resolve it against the address-bar URL) or derive the origin from the
+`Host`/`X-Forwarded-Host` header, not from the socket. (We hit exactly this in the
+v5 dogfood.) Distinguish it from the recipe-side cookie/CORS issues below.
+
+## v5 auth: "seeded user rejected" is a recipe bug, not a broken login
+If the login **form renders** but the seeded `TEST_USER`/`TEST_PASSWORD` is
+rejected, suspect the recipe/seed — not the product. Usual causes: the seed wrote
+the wrong password-hash format (app uses bcrypt, seed wrote plaintext/SHA-256), the
+user wasn't created **confirmed** (app blocks unconfirmed logins and the delegate
+can't click an email link), or the seed didn't run at all. Fix the seed; don't file
+a product finding. Genuine product-side login failures (cookie won't stick over
+HTTP, CORS rejects the sandbox origin) are covered above under "Login fails".
+
 ## Review mode: keep the mission list small
 Each mission is a real delegate subagent (Sonnet 5 by default) plus a sandbox reset — cost and wall-clock scale with mission count, and they run one at a time. Prefer 2–5 sharp, diff-scoped missions over a broad sweep. If you cap coverage, say so in the report.

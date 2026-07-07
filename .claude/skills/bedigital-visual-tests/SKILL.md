@@ -76,6 +76,8 @@ Follow `reference/onboarding.md`. In short: detect the stack via the signal ladd
 - `.bedigital-visual-tests/sandbox.compose.yml` — the sandbox definition: either a **sanitizing override** layered on the repo's existing compose, or a self-contained compose that builds from `templates/Dockerfile.base.example`.
 - Commit `recipe.env` + `sandbox.compose.yml`. `.bedigital-visual-tests/evidence/` is gitignored.
 
+If the app has **auth** or needs **DB seeding beyond the image's initdb**, also fill the recipe's v5 blocks: throwaway `TEST_USER`/`TEST_PASSWORD`/`LOGIN_PATH` (the seed creates that user *confirmed*; the delegate logs in through the real form) and `SEED_STRATEGY` (+ `MIGRATE_CMD`/`SEED_CMD`, run in-container against the throwaway DB). Never inject a real/VPS `DATABASE_URL` — replicate that DB locally. See `reference/onboarding.md` §5.
+
 Then run `sandbox.sh onboard` to build the base image. **Secrets are the #1 real blocker** — if the app needs vault keys / JWT / API keys to boot, record them in the recipe and inject throwaway values; the health-gate will otherwise hang. See `reference/gotchas.md`.
 
 ### 2. Spin the sandbox
