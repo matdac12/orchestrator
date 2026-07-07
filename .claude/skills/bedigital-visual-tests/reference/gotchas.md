@@ -1,0 +1,35 @@
+# Gotchas (hard-won)
+
+Failure modes we actually hit or that reliably bite, with fixes.
+
+## App never becomes healthy → almost always secrets/env
+The single most common blocker. Apps refuse to boot without JWT/RSA keys, vault master keys, or API keys, and the health poll just times out. Fix: read `.env.example` + startup code during onboarding; inject **throwaway** values in the sandbox compose; record any keygen command in the recipe. Read the container logs (`sandbox.sh` prints the tail on failure) — the missing var is usually named there.
+
+## Chromium force-upgrades single-label hosts to HTTPS
+Navigating a browser **inside a container** to `http://<service>:<port>` (e.g. `http://app:3000`) fails with `ERR_SSL_PROTOCOL_ERROR` even though the server is plain HTTP — Chromium auto-upgrades single-label hostnames (no dot) to HTTPS. Raw IPs and dotted hosts are exempt; `node fetch`/health checks are NOT affected (which masks it). **Default fix: drive from the host against the published `localhost` port (exempt).** If you must drive in-container, give the app a dotted network alias (`app.test`) and target that.
+
+## `NEXT_PUBLIC_*` / client-vs-server API URLs
+Vars prefixed for the client are read **in the browser on the host**, which cannot resolve compose service names. Server-side code uses `http://<service>:<port>`; client-side must use the published `http://localhost:<port>`. Also: `NEXT_PUBLIC_*` are inlined at **build** time — changing them means rebuilding the image, not just restarting.
+
+## Reusing the repo's compose as-is
+A dev compose assumes the developer's laptop. Sanitize via the override: **unique project name** (scripts do this), **ephemeral host ports** (`"0:<port>"`) to avoid collisions, **inject your own throwaway env/secrets** (don't rely on their `.env`), **drop host source bind-mounts** (test the built image, not the working tree) and named-volume data, and **disable dev-only services** via `profiles`.
+
+## Fixed `container_name:` breaks isolation
+Container names are **global**, not scoped to the compose project — so a base compose with `container_name: pec-backend` collides between two concurrent sandbox runs AND with the developer's dev stack, even though each run has a unique project name. Fix: in the override, set `container_name: bdvt-${BDVT_RUN}-<svc>` for every service the base names (`sandbox.sh` exports `BDVT_RUN` per run). If a service has no fixed name in the base, leave it alone — Docker auto-names it per project.
+
+## `env_file:` you can't remove and can't be missing
+An override **cannot unset** an `env_file:` the base compose declares, and `docker compose` **errors if the referenced file doesn't exist**. So a base with `env_file: ./backend/.env` will fail on any machine lacking that file, and its values load whether you want them or not. Fix: onboarding must ensure a throwaway **stub** exists at each `env_file` path (create one if missing). Your override's `environment:` block still wins **per-key** over the file's values — use it for the vars that must be sandbox-specific.
+
+## Login fails / blank network tab
+Cookie won't stick over HTTP → set `AUTH_COOKIE_SECURE=false` (or equivalent) in the sandbox. Backend CORS must allow the sandbox origin (`http://localhost:<ephemeral>`); if it's a fixed allowlist, that's the culprit. And the seed must create a deterministic test user.
+
+## Windows / WSL2
+- Transient `EAI_AGAIN <registry>` during a base build is usually a VPN DNS blip, not a config error — just re-run `onboard`.
+- CRIU / `docker checkpoint` for warm snapshots is experimental and fragile on WSL2 — don't build on it.
+- If you ever fall back to bind-mounts, enable file-watch polling (`WATCHPACK_POLLING`/`CHOKIDAR_USEPOLLING`) or clone inside the WSL2 filesystem, not `/mnt/c`.
+
+## Dev-mode ≠ prod parity (why we build committed code)
+Running `next dev` on a bind-mounted working tree is faster but tests uncommitted code and misses prod-only bugs (bundling, RSC/edge, build-time inlining). This skill builds a clean image of committed `HEAD` on purpose — reproducible and equal to what will merge.
+
+## Port assumptions
+The host port is **ephemeral per run**. Always read `SANDBOX_URL` from `up`; never hard-code 3000.

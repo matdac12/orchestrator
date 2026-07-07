@@ -1,0 +1,19 @@
+# .bedigital-visual-tests/Dockerfile.base — the golden base image (self-contained path).
+# Built ONCE per lockfile hash by `sandbox.sh onboard`. Bake every expensive,
+# rarely-changing thing here so per-run sandboxes only copy source + build.
+#
+# Adjust the runtime + install steps to the detected stack. This example is
+# Node/pnpm; for Python add uv/pip, for both use a multi-stage or combined image.
+FROM node:20-bookworm-slim
+
+RUN corepack enable
+WORKDIR /app
+
+# Manifest only, so this layer caches independently of source changes.
+COPY package.json pnpm-lock.yaml* ./
+RUN pnpm install
+
+# Bake anything else expensive here (e.g. a browser for in-container tests):
+#   RUN pnpm exec playwright install --with-deps chromium
+# NOTE: only needed if you drive the browser INSIDE a container. The default
+# is to drive from the host against the published port (simpler; no browser here).

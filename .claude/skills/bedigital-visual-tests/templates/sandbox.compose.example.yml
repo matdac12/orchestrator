@@ -1,0 +1,75 @@
+# .bedigital-visual-tests/sandbox.compose.yml — the sandbox definition.
+# Two shapes; pick ONE based on whether the repo already has a compose file.
+# The scripts always run: docker compose -p <unique> [-f BASE_COMPOSE] -f THIS up
+#
+# ============================================================================
+# SHAPE A — SANITIZING OVERRIDE (repo already has docker-compose.yml)
+# Set BASE_COMPOSE=docker-compose.yml in recipe.env. This file only OVERRIDES.
+# ============================================================================
+#
+# services:
+#   frontend:                       # == APP_SERVICE
+#     ports: ["0:3000"]             # ephemeral host port (0 = Docker picks free); == APP_PORT
+#     container_name: bdvt-${BDVT_RUN}-frontend  # ONLY if the base sets a fixed name.
+#                                   # Fixed container_name is GLOBAL and breaks per-run
+#                                   # isolation; sandbox.sh exports BDVT_RUN per run.
+#     environment:
+#       # Throwaway values — never rely on the developer's .env being present.
+#       AUTH_COOKIE_SECURE: "false" # accept session cookie over HTTP on localhost
+#     volumes: []                   # drop host source bind-mounts: test the built image
+#   backend:
+#     ports: ["0:8000"]
+#     container_name: bdvt-${BDVT_RUN}-backend
+#     environment:
+#       JWT_PRIVATE_KEY: "dev-only-throwaway"   # see reference/gotchas.md on secrets
+#   postgres:
+#     ports: []                     # don't publish DB — reach it over the compose network
+#     container_name: bdvt-${BDVT_RUN}-postgres
+#   # dev-only services (mailhog, docs, etc.): disable via profiles so they don't start
+#   mailhog:
+#     profiles: ["donotstart"]
+#
+# NOTE on env_file: an override CANNOT remove an `env_file:` the base compose
+# declares, and compose ERRORS if that file is missing. If the base uses
+# `env_file: ./backend/.env`, onboarding must create a throwaway stub at that
+# path (your `environment:` here still wins per-key over its values).
+#
+# ============================================================================
+# SHAPE B — SELF-CONTAINED (repo has NO compose). Leave BASE_COMPOSE unset.
+# Pairs with Dockerfile.base (deps) + Dockerfile.sandbox (FROM ${BASE_IMAGE}).
+# ============================================================================
+
+name: bdvt-sandbox
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [sandbox]
+
+  frontend:                          # == APP_SERVICE
+    build:
+      context: .
+      dockerfile: .bedigital-visual-tests/Dockerfile.sandbox
+      args:
+        # sandbox.sh passes the lockfile-hash-tagged base image here.
+        BASE_IMAGE: ${BASE_IMAGE:-bdvt-base:latest}
+    environment:
+      DATABASE_URL: postgres://app:app@postgres:5432/app
+      NODE_ENV: production
+    ports: ["0:3000"]                # ephemeral host port; == APP_PORT
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [sandbox]
+
+networks:
+  sandbox:
