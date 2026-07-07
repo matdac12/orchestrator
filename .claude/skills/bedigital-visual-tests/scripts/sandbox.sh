@@ -57,9 +57,12 @@ lockfile_hash() {
 
 base_image() { echo "bdvt-$(repo_slug)-base:$(lockfile_hash)"; }
 
-# Assemble the -f arguments: optional base compose, then our override.
+# Assemble compose args. --project-directory pins the repo root as the project
+# dir so relative build contexts/dockerfiles resolve against it — NOT against
+# the .bedigital-visual-tests/ folder the override lives in (which would double
+# the path). Callers cd to the repo root (or its HEAD worktree) first.
 compose_files() {
-  local args=()
+  local args=(--project-directory .)
   [ -n "$BASE_COMPOSE" ] && args+=(-f "$BASE_COMPOSE")
   args+=(-f "$BVT_DIR/sandbox.compose.yml")
   printf '%s\n' "${args[@]}"
@@ -107,8 +110,12 @@ cmd_up() {
   [ -f "$STAMP" ] || die "not onboarded — run 'onboard' first"
   [ "$(cat "$STAMP")" = "$cur" ] || die "base is stale (deps changed) — run 'onboard' to rebuild"
 
-  local slug run proj wt evid
+  local slug run proj wt evid baseimg
   slug=$(repo_slug)
+  # Resolve the base image name+hash NOW, from the real repo — inside the HEAD
+  # worktree the slug and lockfile hash would both differ (different toplevel,
+  # CRLF-normalized checkout).
+  baseimg=$(base_image)
   run="$(date +%Y%m%d-%H%M%S)-$$"
   proj="bdvt-$slug-$run"
   wt="$(git rev-parse --show-toplevel)/../.bdvt-worktrees/$slug-$run"
@@ -133,7 +140,7 @@ cmd_up() {
     cd "$wt"
     # BDVT_RUN lets the override interpolate per-run-unique container names
     # (fixed container_name is global and breaks isolation — see gotchas.md).
-    BASE_IMAGE="$(base_image)" BDVT_RUN="$run" DOCKER_BUILDKIT=1 \
+    BASE_IMAGE="$baseimg" BDVT_RUN="$run" DOCKER_BUILDKIT=1 \
       docker compose -p "$proj" "${cf[@]}" up -d --build
   )
 
