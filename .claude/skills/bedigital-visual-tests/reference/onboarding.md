@@ -62,9 +62,10 @@ depends on the app's auth family:
   confirmed user into the users table. Match the app's password hashing (bcrypt /
   argon2 / a demo SHA-256) — a wrong hash format is the usual "login rejected"
   cause, and that's a recipe bug, not a product bug.
-- **Cloud-Supabase auth:** run the Supabase LOCAL stack in the sandbox and seed via
-  `auth.admin.createUser({email,password,email_confirm:true})` — **Phase 2, not yet
-  implemented.** Don't wire cloud Supabase; defer.
+- **Cloud-Supabase auth:** run the Supabase LOCAL stack in the sandbox (db + GoTrue
+  + PostgREST + gateway) and seed a confirmed user via the admin API. Full playbook +
+  templates in **`reference/supabase.md`**. Never point the sandbox at the real
+  Supabase project.
 
 Also carry the HTTP-cookie gotchas: the session cookie must stick over plain HTTP
 on `localhost` (`AUTH_COOKIE_SECURE=false` or equivalent), and any CORS allowlist

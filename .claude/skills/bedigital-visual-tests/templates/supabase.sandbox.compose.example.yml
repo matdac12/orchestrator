@@ -1,0 +1,124 @@
+# .bedigital-visual-tests/sandbox.compose.yml — LOCAL SUPABASE stack + app (v5 Phase 2).
+# Use this shape when the app authenticates against Supabase. It runs a trimmed
+# local Supabase stack (db + auth + rest + gateway) INSIDE the sandbox so
+# adversarial missions never touch a real project. Proven end-to-end against a
+# minimal @supabase/ssr Next.js sample (see reference/supabase.md).
+#
+# Pairs with (all committed under .bedigital-visual-tests/):
+#   supabase/roles.sql     — set auth+rest role passwords (from the official self-host)
+#   supabase/jwt.sql       — set JWT GUCs (from the official self-host)
+#   supabase/gateway.conf  — nginx: one origin routing /auth/v1 + /rest/v1
+#   scripts/seed-supabase-user.mjs (in the app repo) — admin-API confirmed-user seed
+#
+# WELL-KNOWN DEV KEYS ONLY. The JWT secret + anon/service_role keys below are the
+# public Supabase local-dev demo values — safe here, sandbox-only. NEVER paste a
+# real project's cloud keys into a sandbox.
+#
+# Images/keys verified against github.com/supabase/supabase docker/ (pin to current).
+
+x-jwt-secret: &jwt_secret "your-super-secret-jwt-token-with-at-least-32-characters-long"
+# anon + service_role are JWTs SIGNED WITH the secret above — regenerate all three
+# together if you change the secret (utils/generate-keys.sh in the supabase repo).
+x-anon-key: &anon_key "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJhbm9uIiwKICAgICJpc3MiOiAic3VwYWJhc2UtZGVtbyIsCiAgICAiaWF0IjogMTY0MTc2OTIwMCwKICAgICJleHAiOiAxNzk5NTM1NjAwCn0.dc_X5iR_VP_qT0zsiyj_I_OZ2T9FtRU2BBNWN8Bu4GE"
+x-service-key: &service_key "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyAgCiAgICAicm9sZSI6ICJzZXJ2aWNlX3JvbGUiLAogICAgImlzcyI6ICJzdXBhYmFzZS1kZW1vIiwKICAgICJpYXQiOiAxNjQxNzY5MjAwLAogICAgImV4cCI6IDE3OTk1MzU2MDAKfQ.DaYlNEoUrrEn2Ig7tqibS-PHK5vgusbcbo7X36XVt4Q"
+
+services:
+  db:
+    image: supabase/postgres:17.6.1.136
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: 5432
+      POSTGRES_PORT: 5432
+      PGPASSWORD: postgres
+      POSTGRES_PASSWORD: postgres
+      PGDATABASE: postgres
+      POSTGRES_DB: postgres
+      JWT_SECRET: *jwt_secret
+      JWT_EXP: 3600
+    volumes:
+      # Same mount points the official self-hosted compose uses. Ephemeral: pgdata is
+      # NOT a host volume, so `reset` (rm -v) wipes auth.users + re-initdb's + reseeds.
+      - ./.bedigital-visual-tests/supabase/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./.bedigital-visual-tests/supabase/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    networks: [sandbox]
+
+  auth:                              # GoTrue
+    image: supabase/gotrue:v2.189.0
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: http://localhost:8000/auth/v1
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:postgres@db:5432/postgres
+      GOTRUE_SITE_URL: http://localhost:3000
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: 3600
+      GOTRUE_JWT_SECRET: *jwt_secret
+      GOTRUE_JWT_ISSUER: http://localhost:8000/auth/v1
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: "true"   # no SMTP in the sandbox; admin seed also sets email_confirm
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [sandbox]
+
+  rest:                              # PostgREST (data API; optional if the app only needs auth)
+    image: postgrest/postgrest:v14.12
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      PGRST_DB_URI: postgres://authenticator:postgres@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: *jwt_secret
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+    networks: [sandbox]
+
+  gateway:                           # nginx — the single Supabase origin (like Kong)
+    image: nginx:1.27-alpine
+    depends_on:
+      auth: { condition: service_healthy }
+    volumes:
+      - ./.bedigital-visual-tests/supabase/gateway.conf:/etc/nginx/nginx.conf:ro
+    networks: [sandbox]
+
+  frontend:                          # == APP_SERVICE — the app under test
+    build:
+      context: .
+      dockerfile: .bedigital-visual-tests/Dockerfile.sandbox
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-bdvt-base:latest}
+        # NEXT_PUBLIC_* are inlined at BUILD time (Next replaces process.env.NEXT_PUBLIC_*
+        # with literals in server AND client bundles) — they MUST be present here, not just
+        # at runtime. The gateway URL is internal + fixed, so baking it is correct and the
+        # browser never dials it (all auth is server-side). See reference/supabase.md.
+        NEXT_PUBLIC_SUPABASE_URL: http://gateway:8000
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: *anon_key
+    environment:
+      NEXT_PUBLIC_SUPABASE_URL: http://gateway:8000
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: *anon_key
+      # Service-role key + creds are used ONLY by the seed step (compose run) at runtime —
+      # never inlined into the browser bundle.
+      SUPABASE_SERVICE_ROLE_KEY: *service_key
+      SEED_TEST_USER: tester@sandbox.local
+      SEED_TEST_PASSWORD: sandbox-only-pw
+    ports: ["0:3000"]                # ephemeral host port; == APP_PORT
+    depends_on:
+      gateway: { condition: service_started }
+    networks: [sandbox]
+
+networks:
+  sandbox:

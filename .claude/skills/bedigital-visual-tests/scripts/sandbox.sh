@@ -241,7 +241,10 @@ cmd_up() {
 
   # From here on, any failure before we print SANDBOX_URL leaves a half-built
   # sandbox + worktree + run-state; tear it all down. Cleared on success.
-  trap 'if [ -z "$up_ok" ]; then
+  # NOTE: use ${up_ok:-} — the EXIT trap fires after cmd_up'\''s frame unwinds, so the
+  # `up_ok` local is out of scope by then; a bare $up_ok would trip `set -u` and mask
+  # the real failure with an "unbound variable" error instead of tearing down.
+  trap 'if [ -z "${up_ok:-}" ]; then
           echo "!! up failed — tearing down partial sandbox ($proj)" >&2
           ( cd "$wt" 2>/dev/null && docker compose -p "$proj" "${cf[@]}" down -v --remove-orphans ) >/dev/null 2>&1 || true
           git worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
