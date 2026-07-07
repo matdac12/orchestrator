@@ -43,15 +43,25 @@ const MIME = {
   ".gif": "image/gif",
   ".webp": "image/webp",
 };
+// Containment: findings.json is untrusted input (and review.html may be
+// published as a shareable Artifact), so a `../` in a `steps`/`repro` path must
+// NOT let us inline arbitrary local files. Resolve against EVIDENCE_DIR and
+// refuse anything that escapes it. e.g. "../etc/passwd" -> null (skipped).
+const root = path.resolve(dir);
+function safeResolve(file) {
+  const p = path.resolve(dir, String(file));
+  if (p !== root && !p.startsWith(root + path.sep)) return null; // escapes EVIDENCE_DIR
+  return p;
+}
 function dataUri(file) {
-  const p = path.join(dir, file);
-  if (!fs.existsSync(p)) return null;
-  const mime = MIME[path.extname(file).toLowerCase()] || "application/octet-stream";
+  const p = safeResolve(file);
+  if (!p || !fs.existsSync(p)) return null;
+  const mime = MIME[path.extname(String(file)).toLowerCase()] || "application/octet-stream";
   return `data:${mime};base64,${fs.readFileSync(p).toString("base64")}`;
 }
 function readText(file) {
-  const p = path.join(dir, file);
-  return fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
+  const p = safeResolve(file);
+  return p && fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null;
 }
 
 const norm = (v) => String(v || "").toLowerCase();

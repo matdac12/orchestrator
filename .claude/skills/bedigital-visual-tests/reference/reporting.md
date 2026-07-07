@@ -57,5 +57,6 @@ Return the artifact URL to the user. **The report is already designed** (built p
 If the `Artifact` tool is **not** available (autonomous/headless), skip publishing and report the local path (`EVIDENCE_DIR/review.html`) — it's fully self-contained and opens in any browser.
 
 ## Notes
+- **Sensitive content:** `review.html` embeds screenshots and can surface network/DB data from the sandbox — treat it as potentially sensitive. Artifacts are **private by default** (only the user chooses to share one), so never auto-share or post the link anywhere public; the human decides who sees it.
 - Everything is inlined; no external assets (the Artifact CSP forbids them). That's why screenshots are `data:` URIs, not `<img src="file.png">`.
 - **Deferred (clean follow-ons):** a downloadable animated `.gif` of the storyboard (stitch the step PNGs with ffmpeg), and true `.webm` motion capture of the live session. Neither is built yet; the inline slideshow covers the "storyboard" need without an encoder dependency.

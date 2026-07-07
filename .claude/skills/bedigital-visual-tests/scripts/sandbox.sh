@@ -19,7 +19,8 @@ set -euo pipefail
 BVT_DIR=".bedigital-visual-tests"
 RECIPE="$BVT_DIR/recipe.env"
 STAMP="$BVT_DIR/.base.hash"       # gitignored; lockfile hash at last onboard
-LAST_RUN="$BVT_DIR/.last-run"     # gitignored; PROJECT + WORKTREE of last `up`
+RUNS_DIR="$BVT_DIR/.runs"         # gitignored; one <run>.env per concurrent `up`
+LAST_RUN="$BVT_DIR/.last-run"     # gitignored; back-compat pointer to newest run
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -38,6 +39,9 @@ load_recipe() {
   #   BASE_COMPOSE  repo compose to layer the override under    (optional)
   #   DATA_SERVICES stateful services `reset` recreates          (default postgres)
   #   RESET_CMD     custom reseed command for `reset`            (optional; SHAPE A)
+  # TRUST: this sources the target repo's committed recipe as SHELL on the HOST
+  # (and RESET_CMD runs via `bash -c` on the host) — NOT sandboxed in Docker.
+  # Only run this skill on repositories you trust. See SKILL.md / onboarding.md.
   # shellcheck disable=SC1090
   source "$RECIPE"
   : "${APP_SERVICE:?recipe missing APP_SERVICE}"
@@ -52,15 +56,52 @@ load_recipe() {
 repo_slug() { basename "$(git rev-parse --show-toplevel)" | tr '[:upper:] ' '[:lower:]-'; }
 
 lockfile_hash() {
-  # Stable hash of all lockfile contents; drives base reuse + re-onboard detection.
+  # Stable hash of all lockfile contents AS COMMITTED — each matched lockfile is
+  # read from HEAD (git show), NOT the working tree, so an uncommitted lockfile
+  # edit can't drift the base identity away from the committed app code the
+  # sandbox actually builds. Drives base reuse + re-onboard detection.
+  # LOCKFILES may contain globs, so expand it (word-split + pathname) to discover
+  # paths; then read the committed blob for each.
   # shellcheck disable=SC2086
   local files; files=$(ls -1 $LOCKFILES 2>/dev/null | sort || true)
   [ -n "$files" ] || die "no lockfiles matched LOCKFILES=\"$LOCKFILES\""
-  # shellcheck disable=SC2086
-  cat $files | sha256sum | cut -c1-12
+  local f
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    git cat-file -e "HEAD:$f" 2>/dev/null \
+      || die "lockfile '$f' is not committed at HEAD — commit it, then re-run"
+  done <<< "$files"
+  # Stream committed blobs (binary-safe: handles e.g. bun.lockb) into the hash.
+  while IFS= read -r f; do [ -n "$f" ] && git show "HEAD:$f"; done <<< "$files" \
+    | sha256sum | cut -c1-12
 }
 
 base_image() { echo "bdvt-$(repo_slug)-base:$(lockfile_hash)"; }
+
+# Newest run-state file (per-run isolation for concurrent `up`s); falls back to
+# the legacy single-file .last-run so pre-existing runs still tear down.
+latest_run_file() {
+  local f
+  f=$(ls -1t "$RUNS_DIR"/*.env 2>/dev/null | head -n1 || true)
+  if [ -n "$f" ]; then echo "$f"; elif [ -f "$LAST_RUN" ]; then echo "$LAST_RUN"; fi
+}
+
+# Check out committed HEAD into a detached worktree at $1 and overlay the
+# (possibly uncommitted) recipe files. App code stays as-committed; only the
+# recipe / Dockerfiles / .dockerignore are copied over so the recipe can be
+# iterated without a commit. Caller owns removing the worktree.
+prepare_head_worktree() {
+  local wt="$1"
+  git worktree add --detach --quiet "$wt" HEAD
+  mkdir -p "$wt/$BVT_DIR"
+  cp -f "$BVT_DIR"/recipe.env "$BVT_DIR"/sandbox.compose.yml "$wt/$BVT_DIR"/ 2>/dev/null || true
+  [ -f "$BVT_DIR/Dockerfile.base" ]    && cp -f "$BVT_DIR/Dockerfile.base" "$wt/$BVT_DIR"/
+  [ -f "$BVT_DIR/Dockerfile.sandbox" ] && cp -f "$BVT_DIR/Dockerfile.sandbox" "$wt/$BVT_DIR"/
+  # Overlay an uncommitted build-context .dockerignore too (docs tell authors to
+  # add one; the build context is the repo root, so it lives there).
+  [ -f ".dockerignore" ] && cp -f ".dockerignore" "$wt/.dockerignore"
+  return 0
+}
 
 # Assemble compose args. --project-directory pins the repo root as the project
 # dir so relative build contexts/dockerfiles resolve against it — NOT against
@@ -95,16 +136,28 @@ cmd_status() {
 cmd_onboard() {
   require_repo; load_recipe
   [ -f "$BVT_DIR/sandbox.compose.yml" ] || die "missing $BVT_DIR/sandbox.compose.yml"
-  local img; img=$(base_image)
+  local img; img=$(base_image)   # also asserts lockfiles are committed
   echo ">> Onboarding $(repo_slug) — building base image (deps baked in). Slow, once."
+
+  # Build from COMMITTED HEAD (a detached worktree), NOT the working tree — same
+  # mechanism as 'up'. Otherwise dirty deps could bake a base whose packages !=
+  # the committed lockfiles the hash/stamp are computed from.
+  local wt; wt="$(git rev-parse --show-toplevel)/../.bdvt-worktrees/$(repo_slug)-onboard-$$"
+  echo ">> Checking out committed HEAD into an isolated worktree..."
+  prepare_head_worktree "$wt"
+
+  local rc=0
   if [ -f "$BVT_DIR/Dockerfile.base" ]; then
     # Self-contained path: build the explicit base image, tagged by lockfile hash.
-    DOCKER_BUILDKIT=1 docker build -f "$BVT_DIR/Dockerfile.base" -t "$img" .
+    ( cd "$wt" && DOCKER_BUILDKIT=1 docker build -f "$BVT_DIR/Dockerfile.base" -t "$img" . ) || rc=$?
   else
     # Reuse path: warm the repo's own build cache via the composed build.
     local cf; mapfile -t cf < <(compose_files)
-    DOCKER_BUILDKIT=1 docker compose -p "bdvt-$(repo_slug)-onboard" "${cf[@]}" build
+    ( cd "$wt" && DOCKER_BUILDKIT=1 docker compose -p "bdvt-$(repo_slug)-onboard" "${cf[@]}" build ) || rc=$?
   fi
+  git worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
+  [ "$rc" -eq 0 ] || die "base build failed"
+
   lockfile_hash > "$STAMP"
   echo ">> Onboarded. Base stamped at hash $(cat "$STAMP"). Run 'up' to test."
 }
@@ -115,7 +168,7 @@ cmd_up() {
   [ -f "$STAMP" ] || die "not onboarded — run 'onboard' first"
   [ "$(cat "$STAMP")" = "$cur" ] || die "base is stale (deps changed) — run 'onboard' to rebuild"
 
-  local slug run proj wt evid baseimg
+  local slug run proj wt evid baseimg runfile up_ok=""
   slug=$(repo_slug)
   # Resolve the base image name+hash NOW, from the real repo — inside the HEAD
   # worktree the slug and lockfile hash would both differ (different toplevel,
@@ -125,23 +178,32 @@ cmd_up() {
   proj="bdvt-$slug-$run"
   wt="$(git rev-parse --show-toplevel)/../.bdvt-worktrees/$slug-$run"
   evid="$(git rev-parse --show-toplevel)/$BVT_DIR/evidence/$run"
-  mkdir -p "$evid"
+  runfile="$RUNS_DIR/$run.env"
+  mkdir -p "$evid" "$RUNS_DIR"
 
-  # Clean build of COMMITTED code: a detached worktree of HEAD as the build context.
+  # Clean build of COMMITTED code: a detached worktree of HEAD as the build
+  # context, with the (possibly uncommitted) recipe files overlaid.
   echo ">> Checking out committed HEAD into an isolated worktree..."
-  git worktree add --detach --quiet "$wt" HEAD
-  # Let the recipe iterate without a commit: copy the (possibly uncommitted)
-  # recipe files over the committed app code. App code stays as-committed.
-  mkdir -p "$wt/$BVT_DIR"
-  cp -f "$BVT_DIR"/recipe.env "$BVT_DIR"/sandbox.compose.yml "$wt/$BVT_DIR"/ 2>/dev/null || true
-  [ -f "$BVT_DIR/Dockerfile.base" ]    && cp -f "$BVT_DIR/Dockerfile.base" "$wt/$BVT_DIR"/
-  [ -f "$BVT_DIR/Dockerfile.sandbox" ] && cp -f "$BVT_DIR/Dockerfile.sandbox" "$wt/$BVT_DIR"/
+  prepare_head_worktree "$wt"
 
-  # .last-run: line1 project, line2 worktree, line3 run id (reset needs the run
-  # id to re-interpolate ${BDVT_RUN} container names when recreating services).
-  printf '%s\n%s\n%s\n' "$proj" "$wt" "$run" > "$LAST_RUN"
+  # Per-run state so two concurrent `up`s don't clobber each other's control
+  # plane. line1 project, line2 worktree, line3 run id (reset needs the run id to
+  # re-interpolate ${BDVT_RUN} container names when recreating services).
+  printf '%s\n%s\n%s\n' "$proj" "$wt" "$run" > "$runfile"
+  printf '%s\n%s\n%s\n' "$proj" "$wt" "$run" > "$LAST_RUN"   # back-compat pointer
 
   local cf; mapfile -t cf < <(compose_files)
+
+  # From here on, any failure before we print SANDBOX_URL leaves a half-built
+  # sandbox + worktree + run-state; tear it all down. Cleared on success.
+  trap 'if [ -z "$up_ok" ]; then
+          echo "!! up failed — tearing down partial sandbox ($proj)" >&2
+          ( cd "$wt" 2>/dev/null && docker compose -p "$proj" "${cf[@]}" down -v --remove-orphans ) >/dev/null 2>&1 || true
+          git worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
+          rm -f "$runfile"
+          [ -f "$LAST_RUN" ] && [ "$(sed -n 1p "$LAST_RUN" 2>/dev/null)" = "$proj" ] && rm -f "$LAST_RUN"
+        fi' EXIT
+
   echo ">> Spinning sandbox (project $proj, ephemeral port)..."
   (
     cd "$wt"
@@ -151,9 +213,11 @@ cmd_up() {
       docker compose -p "$proj" "${cf[@]}" up -d --build
   )
 
-  # Ephemeral host port: the override maps "0:APP_PORT" so Docker picks a free one.
+  # Ephemeral host port: the override maps "0:APP_PORT" so Docker picks a free
+  # one. Take the FIRST binding line, then the port after the LAST colon so an
+  # IPv6 bind (`[::]:32768`) or multiple bindings still parse to just the port.
   local hostport url
-  hostport=$( (cd "$wt" && docker compose -p "$proj" "${cf[@]}" port "$APP_SERVICE" "$APP_PORT") | sed 's/.*://')
+  hostport=$( (cd "$wt" && docker compose -p "$proj" "${cf[@]}" port "$APP_SERVICE" "$APP_PORT") | head -n1 | sed 's/.*://')
   [ -n "$hostport" ] || die "could not resolve published port for $APP_SERVICE:$APP_PORT"
   url="http://localhost:$hostport"
 
@@ -170,6 +234,7 @@ cmd_up() {
     die "sandbox unhealthy"
   fi
 
+  up_ok=1; trap - EXIT   # success — keep the sandbox; disarm the teardown trap
   echo ""
   echo "SANDBOX_URL=$url"
   echo "EVIDENCE_DIR=$evid"
@@ -178,8 +243,9 @@ cmd_up() {
 
 cmd_down() {
   require_repo; load_recipe
-  [ -f "$LAST_RUN" ] || { echo "no recorded run to tear down"; return 0; }
-  local proj wt; proj=$(sed -n 1p "$LAST_RUN"); wt=$(sed -n 2p "$LAST_RUN")
+  local runfile; runfile=$(latest_run_file)
+  [ -n "$runfile" ] && [ -f "$runfile" ] || { echo "no recorded run to tear down"; return 0; }
+  local proj wt; proj=$(sed -n 1p "$runfile"); wt=$(sed -n 2p "$runfile")
   local cf; mapfile -t cf < <(compose_files)
   if [ -d "$wt" ]; then
     ( cd "$wt" && docker compose -p "$proj" "${cf[@]}" down -v --remove-orphans ) || true
@@ -187,7 +253,9 @@ cmd_down() {
   else
     docker compose -p "$proj" down -v --remove-orphans 2>/dev/null || true
   fi
-  rm -f "$LAST_RUN"
+  rm -f "$runfile"
+  # Clear the back-compat pointer if it named this same run.
+  [ -f "$LAST_RUN" ] && [ "$(sed -n 1p "$LAST_RUN" 2>/dev/null)" = "$proj" ] && rm -f "$LAST_RUN"
   echo ">> Torn down $proj (base image kept)."
 }
 
@@ -195,8 +263,9 @@ cmd_reset() {
   # Restore a clean, seeded DB between missions without rebuilding the sandbox.
   # Adversarial missions mutate state; this gives each one an identical slate.
   require_repo; load_recipe
-  [ -f "$LAST_RUN" ] || die "no active sandbox to reset — run 'up' first"
-  local proj wt run; proj=$(sed -n 1p "$LAST_RUN"); wt=$(sed -n 2p "$LAST_RUN"); run=$(sed -n 3p "$LAST_RUN")
+  local runfile; runfile=$(latest_run_file)
+  [ -n "$runfile" ] && [ -f "$runfile" ] || die "no active sandbox to reset — run 'up' first"
+  local proj wt run; proj=$(sed -n 1p "$runfile"); wt=$(sed -n 2p "$runfile"); run=$(sed -n 3p "$runfile")
   [ -n "$run" ] || run="${proj#bdvt-$(repo_slug)-}"
   [ -d "$wt" ] || die "recorded worktree missing ($wt) — run 'up' again"
   local cf; mapfile -t cf < <(compose_files)
@@ -215,10 +284,14 @@ cmd_reset() {
       # ephemeral host port and invalidate the SANDBOX_URL already in use. The app
       # reconnects lazily on its next query (its connection pool must tolerate a
       # dropped DB — a production-grade pool does; see gotchas.md).
+      # DATA_SERVICES is intentionally word-split (multiple services); `set -f`
+      # keeps a name from being pathname-expanded against the cwd.
+      set -f
       # shellcheck disable=SC2086
       docker compose -p "$proj" "${cf[@]}" rm -v -sf $DATA_SERVICES
       # shellcheck disable=SC2086
       docker compose -p "$proj" "${cf[@]}" up -d --no-deps $DATA_SERVICES
+      set +f
     fi
   )
   echo ">> Reset done — DB reseeded."
