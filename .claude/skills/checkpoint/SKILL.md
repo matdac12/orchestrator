@@ -7,7 +7,8 @@ user-invocable: true
 # Checkpoint — Worker Post-Work Workflow
 
 Run this after completing the plan's implementation, before the work is considered
-done. Execute the steps in order; do not skip Step 1 or Step 4.
+done. Execute the steps in order. Only Step 2 (Codex review) is optional — Steps 1, 3
+and 4 are mandatory: the job ends at a committed branch plus a `done` report.
 
 Resolve `<path>` = the orchestrator repo path
 (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project; you run
@@ -36,19 +37,26 @@ note what changed.
 
 ## Step 2 — Codex Review (optional)
 
-If the `codex` plugin is available, get a second opinion — follow the `/ask-codex`
-skill for the exact mechanics. Note `/codex:review` and `/codex:adversarial-review` are
-**user-only** (you cannot invoke them); checkpoint runs autonomously, so:
-1. Run `/codex:rescue` with an explicit **review-only** framing on your branch's
-   changes, e.g. `/codex:rescue Review ONLY — do not edit any files. Review the changes
-   on this branch for correctness, design, and risk: <point at the diff>.` (The rescue
-   runtime stays read-only for a review request.) Use an "adversarial review … challenge
-   the approach/assumptions" framing if you want the design questioned.
-2. Reason critically about the output — do not accept it at face value.
-3. Present your analysis (agree/disagree + why) and discuss with the user.
-4. Apply agreed changes, then re-run `/code-review` if code was modified.
+If Codex is available, get a second opinion. **Preferred: spawn the global
+`codex-reviewer` agent** (Agent tool) with your repo dir, the branch/diff to review,
+and the specific question — it runs the whole Codex pass in its own context and
+returns a compact cited report. Fallback (agent type unavailable): follow the
+`/ask-codex` skill yourself (direct `codex exec
+--dangerously-bypass-approvals-and-sandbox`; the codex plugin is disabled on this
+machine), using its review template — including its REQUIRED output contract
+(proof-of-read + file:line+quote citations) — on your branch's changes, e.g. "Review ONLY — do not edit
+any files. Review the changes on this branch for correctness, design, and risk:
+<point at the diff>." Use an "adversarial review … challenge the approach/assumptions"
+framing if you want the design questioned.
+1. Reason critically about the output — do not accept it at face value.
+2. Apply only the fixes you clearly agree with (obviously correct, in scope, low
+   risk). Do NOT stop to discuss with the user — checkpoint is autonomous.
+3. Post every finding you disagree with, are unsure about, or deliberately did not
+   apply as a warning event (`codex finding not applied: <file:line> <why>`), so the
+   orchestrator sees it before merging.
+4. Re-run `/code-review` if code was modified.
 
-If the `codex` plugin is not installed, the token expired mid-review, or the user
+If the `codex` CLI is not installed, the token expired mid-review, or the user
 says "skip codex," post the warning event from the header (`<step> skipped: <why>`)
 and go to Step 3.
 
