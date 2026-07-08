@@ -3,6 +3,7 @@
 #
 # Subcommands (run from the target repo root):
 #   status   is this repo onboarded and is the base current?
+#   doctor   static preflight: validate the recipe + rendered compose (no build)
 #   onboard  build the base image (deps baked in), stamp the lockfile hash
 #   up       spin a fresh, isolated sandbox from COMMITTED code; print its URL
 #   reset    restore a clean seeded DB on the active sandbox (app stays up)
@@ -16,6 +17,7 @@
 #   Dockerfile.sandbox    (self-contained path only; FROM ${BASE_IMAGE})
 set -euo pipefail
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # this skill's scripts/ dir
 BVT_DIR=".bedigital-visual-tests"
 RECIPE="$BVT_DIR/recipe.env"
 STAMP="$BVT_DIR/.base.hash"       # gitignored; lockfile hash at last onboard
@@ -177,9 +179,123 @@ cmd_status() {
   fi
 }
 
+# Static preflight: validate the authored recipe + rendered compose WITHOUT
+# building anything, so onboarding fails fast with concrete, framework-agnostic
+# reasons instead of a slow build/health-gate timeout. Returns non-zero if any
+# check FAILs (warnings don't fail). Also runnable standalone.
+cmd_doctor() {
+  require_repo; load_recipe
+  local fails=0 warns=0
+  _p(){ echo "  PASS  $*"; }
+  _w(){ echo "  WARN  $*"; warns=$((warns+1)); }
+  _f(){ echo "  FAIL  $*"; fails=$((fails+1)); }
+
+  echo ">> doctor: $(repo_slug) — static recipe checks (no build)"
+  _p "recipe vars: APP_SERVICE=$APP_SERVICE APP_PORT=$APP_PORT HEALTH_PATH=$HEALTH_PATH"
+
+  # Lockfiles must be committed — the base identity is hashed from committed blobs.
+  local any_lf=0 lf_bad=0 pat f
+  for pat in $LOCKFILES; do
+    for f in $(ls -1 $pat 2>/dev/null); do
+      any_lf=1
+      git cat-file -e "HEAD:$f" 2>/dev/null || { _f "lockfile not committed at HEAD: $f"; lf_bad=1; }
+    done
+  done
+  [ "$any_lf" = 1 ] || _f "no files matched LOCKFILES=\"$LOCKFILES\""
+  [ "$any_lf" = 1 ] && [ "$lf_bad" = 0 ] && _p "lockfiles committed: $LOCKFILES"
+
+  # Compose assets present.
+  [ -f "$BVT_DIR/sandbox.compose.yml" ] || _f "missing $BVT_DIR/sandbox.compose.yml"
+  if [ -n "$BASE_COMPOSE" ]; then
+    [ -f "$BASE_COMPOSE" ] && _p "BASE_COMPOSE exists: $BASE_COMPOSE" || _f "BASE_COMPOSE not found: $BASE_COMPOSE"
+  fi
+  if [ -f "$BVT_DIR/Dockerfile.base" ] || [ -f "$BVT_DIR/Dockerfile.sandbox" ]; then
+    [ -f ".dockerignore" ] && _p ".dockerignore present (SHAPE B build context)" \
+      || _w "no .dockerignore at repo root — SHAPE B may bake node_modules/.git/.env into the image"
+  fi
+
+  # Raw-file checks (pre-render): fixed container_name, and env_files that won't
+  # exist in the committed HEAD-worktree build.
+  local raw_files=("$BVT_DIR/sandbox.compose.yml"); [ -n "$BASE_COMPOSE" ] && raw_files=("$BASE_COMPOSE" "${raw_files[@]}")
+  while IFS= read -r ln; do
+    [ -n "$ln" ] && _w "fixed container_name breaks per-run isolation (template with \${BDVT_RUN}): ${ln#*:}"
+  done < <(grep -nE '^[[:space:]]*container_name:' "${raw_files[@]}" 2>/dev/null | grep -v 'BDVT_RUN' || true)
+
+  local ef
+  while IFS= read -r ef; do
+    [ -n "$ef" ] || continue
+    ef="${ef%\"}"; ef="${ef#\"}"; ef="${ef%\'}"; ef="${ef#\'}"
+    if git ls-files --error-unmatch "$ef" >/dev/null 2>&1; then
+      _p "env_file committed: $ef"
+    else
+      _w "env_file '$ef' is not committed — it will be ABSENT in the HEAD-worktree build; commit a throwaway stub or move the vars inline into the sandbox compose"
+    fi
+  done < <(awk '
+    /^[[:space:]]*env_file:[[:space:]]*[^[:space:]#].*/ { p=$0; sub(/^[^:]*:[[:space:]]*/,"",p); print p; next }
+    /^[[:space:]]*env_file:[[:space:]]*$/ { blk=1; next }
+    blk==1 && /^[[:space:]]*-[[:space:]]*/ { p=$0; sub(/^[[:space:]]*-[[:space:]]*/,"",p); sub(/[[:space:]]*#.*$/,"",p); print p; next }
+    blk==1 { blk=0 }
+  ' "${raw_files[@]}" 2>/dev/null || true)
+
+  # Render the compose (with placeholder BASE_IMAGE/BDVT_RUN) and check services.
+  local cf; mapfile -t cf < <(compose_files)
+  local errf; errf=$(mktemp)
+  if BASE_IMAGE="doctor" BDVT_RUN="doctor" docker compose "${cf[@]}" config >/dev/null 2>"$errf"; then
+    _p "compose config renders (BASE_IMAGE/BDVT_RUN interpolate)"
+    # List services with ALL profiles enabled — `config --services` hides
+    # profile-gated services (e.g. one-shot migrate/seed) by default, which would
+    # falsely flag a slot that targets them.
+    local profs pr; profs=$(BASE_IMAGE="doctor" BDVT_RUN="doctor" docker compose "${cf[@]}" config --profiles 2>/dev/null)
+    local prof_args=(); for pr in $profs; do prof_args+=(--profile "$pr"); done
+    local svcs; svcs=$(BASE_IMAGE="doctor" BDVT_RUN="doctor" docker compose "${cf[@]}" ${prof_args[@]+"${prof_args[@]}"} config --services 2>/dev/null)
+    grep -qx "$APP_SERVICE" <<<"$svcs" && _p "APP_SERVICE '$APP_SERVICE' is defined" \
+      || _f "APP_SERVICE '$APP_SERVICE' is not a service (have: $(echo $svcs | tr '\n' ' '))"
+    local ds; for ds in $DATA_SERVICES; do
+      grep -qx "$ds" <<<"$svcs" || _w "DATA_SERVICES entry '$ds' is not a defined service"
+    done
+    # Slot commands should target a real service (heuristic: last token).
+    local sc scv
+    for sc in "MIGRATE_CMD:$MIGRATE_CMD" "SEED_CMD:$SEED_CMD"; do
+      local lbl="${sc%%:*}" body="${sc#*:}"
+      [ -n "$body" ] || continue
+      scv=$(echo "$body" | grep -oE '(run[[:space:]]+(--rm[[:space:]]+)?(-{1,2}[A-Za-z-]+[[:space:]]+)*|exec[[:space:]]+(-{1,2}[A-Za-z-]+[[:space:]]+)*)[A-Za-z0-9_.-]+' | grep -oE '[A-Za-z0-9_.-]+$' | head -1)
+      if [ -n "$scv" ]; then
+        grep -qx "$scv" <<<"$svcs" && _p "$lbl targets service '$scv'" \
+          || _w "$lbl references service '$scv' which is not defined in the compose"
+      fi
+    done
+    # Deep structural checks (ports/bind-mounts/container_name) via node.
+    if have node; then
+      local jf ndf; jf=$(mktemp); ndf=$(mktemp)
+      BASE_IMAGE="doctor" BDVT_RUN="doctor" docker compose "${cf[@]}" config --format json > "$jf" 2>/dev/null || true
+      node "$SELF_DIR/doctor-compose.js" "$APP_SERVICE" "$APP_PORT" < "$jf" > "$ndf" 2>/dev/null || true
+      while IFS= read -r line; do
+        case "$line" in FAIL*) fails=$((fails+1));; WARN*) warns=$((warns+1));; esac
+        [ -n "$line" ] && echo "  $line"
+      done < "$ndf"
+      rm -f "$jf" "$ndf"
+    else
+      _w "node not found — skipping deep port/bind-mount/container_name checks"
+    fi
+  else
+    _f "compose config failed to render: $(head -1 "$errf")"
+  fi
+  rm -f "$errf"
+
+  echo ""
+  if [ "$fails" -eq 0 ]; then
+    echo ">> doctor: OK — 0 failing, $warns warning(s)."
+    return 0
+  fi
+  echo ">> doctor: $fails failing, $warns warning(s) — fix the FAILs before onboarding."
+  return 1
+}
+
 cmd_onboard() {
   require_repo; load_recipe
   [ -f "$BVT_DIR/sandbox.compose.yml" ] || die "missing $BVT_DIR/sandbox.compose.yml"
+  echo ">> Preflight (doctor)..."
+  cmd_doctor || die "doctor found blocking issues — fix the FAILs, then re-run onboard"
   local img; img=$(base_image)   # also asserts lockfiles are committed
   echo ">> Onboarding $(repo_slug) — building base image (deps baked in). Slow, once."
 
@@ -392,10 +508,11 @@ have docker || die "docker not found on PATH"
 have git || die "git not found on PATH"
 case "${1:-}" in
   status)  cmd_status ;;
+  doctor)  cmd_doctor ;;
   onboard) cmd_onboard ;;
   up)      cmd_up ;;
   reset)   cmd_reset ;;
   down)    cmd_down ;;
   nuke)    cmd_nuke ;;
-  *) echo "usage: sandbox.sh {status|onboard|up|reset|down|nuke}" >&2; exit 2 ;;
+  *) echo "usage: sandbox.sh {status|doctor|onboard|up|reset|down|nuke}" >&2; exit 2 ;;
 esac

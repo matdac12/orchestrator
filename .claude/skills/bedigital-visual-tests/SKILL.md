@@ -58,6 +58,7 @@ All commands run from the target repo root. `SKILL_DIR` = this skill's directory
 | Goal | Command |
 |------|---------|
 | Is this repo onboarded? / is the base current? | `"$SKILL_DIR/scripts/sandbox.sh" status` |
+| Static preflight: validate the recipe + compose (no build) | `"$SKILL_DIR/scripts/sandbox.sh" doctor` |
 | First-time onboard (after you've authored the recipe) | `"$SKILL_DIR/scripts/sandbox.sh" onboard` |
 | Spin a fresh isolated sandbox, print its URL | `"$SKILL_DIR/scripts/sandbox.sh" up` |
 | Restore a clean seeded DB between missions (recreate data → migrate → seed → restart app → re-gate health) | `"$SKILL_DIR/scripts/sandbox.sh" reset` |
@@ -70,13 +71,13 @@ All commands run from the target repo root. `SKILL_DIR` = this skill's directory
 
 ### 1. Onboard (first time on a repo only)
 
-Follow `reference/onboarding.md`. In short: detect the stack via the signal ladder (existing `docker-compose.yml`/`devcontainer.json`/`Dockerfile` win → lockfile picks the package manager → marker files pick the runtime → scripts infer build/start → else ask), then **write the recipe** into the target repo and **confirm it with the user before building**:
+Follow `reference/onboarding.md`. In short: onboard around the **web surface** — *what single URL does the browser hit, and does the app already produce it from a clean checkout?* — and pick one of four shapes (`single-web-no-db`, `single-web-db`, `split-web-api-db`, `existing-compose-override`), each with a starter in `templates/` (see `templates/README.md`). A `docker-compose.yml` existing does NOT mean it serves the browser-facing app. Then **write the recipe** into the target repo and **confirm it with the user before building**:
 
-- `.bedigital-visual-tests/recipe.env` — sourced by the scripts (app service, container port, health path, lockfile globs, optional base compose to layer under).
-- `.bedigital-visual-tests/sandbox.compose.yml` — the sandbox definition: either a **sanitizing override** layered on the repo's existing compose, or a self-contained compose that builds from `templates/Dockerfile.base.example`.
+- `.bedigital-visual-tests/recipe.env` — sourced by the scripts (app service, container port, health path, lockfile globs, optional base compose, and the `MIGRATE_CMD`/`SEED_CMD` data-lifecycle slots).
+- `.bedigital-visual-tests/sandbox.compose.yml` — the sandbox definition: either a **sanitizing override** layered on the repo's existing compose, or a self-contained compose (start from a `templates/` scaffold or `templates/Dockerfile.base.example`).
 - Commit `recipe.env` + `sandbox.compose.yml`. `.bedigital-visual-tests/evidence/` is gitignored.
 
-Then run `sandbox.sh onboard` to build the base image. **Secrets are the #1 real blocker** — if the app needs vault keys / JWT / API keys to boot, record them in the recipe and inject throwaway values; the health-gate will otherwise hang. See `reference/gotchas.md`.
+Then run `sandbox.sh doctor` (fast static preflight — lockfiles committed, `APP_SERVICE` publishes `APP_PORT`, no fixed `container_name`/bind-mounts, slot services exist, env_files committed) and fix any **FAIL**; `sandbox.sh onboard` runs it automatically and refuses to build on a FAIL. **Secrets are the #1 real blocker** — if the app needs vault keys / JWT / API keys to boot, record them in the recipe and inject throwaway values; the health-gate will otherwise hang. See `reference/gotchas.md`.
 
 ### 2. Spin the sandbox
 
@@ -114,12 +115,15 @@ The autonomous review flow. Full playbook in **`reference/reviewing.md`**; in sh
 
 ## Files
 
-- `scripts/sandbox.sh` — deterministic Docker mechanics (status/onboard/up/reset/down/nuke)
+- `scripts/sandbox.sh` — deterministic Docker mechanics (status/doctor/onboard/up/reset/down/nuke)
+- `scripts/doctor-compose.js` — Node (no deps): structural checks on the rendered compose, used by `doctor`
 - `scripts/build-report.js` — Node (no deps): findings.json + evidence → self-contained `review.html`
-- `templates/recipe.env.example` — the recipe schema, documented (incl. model policy + reset)
+- `templates/README.md` — the four surface-typed shapes → which template to start from
+- `templates/single-web-db/`, `templates/split-web-api-db/` — fill-in-the-blanks recipe scaffolds
+- `templates/recipe.env.example` — the recipe schema, documented (incl. migrate/seed slots + model policy)
 - `templates/sandbox.compose.example.yml` — sanitizing-override + self-contained examples
 - `templates/Dockerfile.base.example` — fallback base image when the repo has no Docker assets
-- `reference/onboarding.md` — stack detection signal ladder + authoring the recipe + secrets
+- `reference/onboarding.md` — onboard by web surface (4 shapes) + authoring the recipe + `doctor` + secrets
 - `reference/reviewing.md` — the review-mode playbook: planner (diff → missions), delegate (drive + repro + fix), aggregator (REVIEW.md)
 - `reference/reporting.md` — the rich report: findings.json → `review.html` (inlined screenshots + storyboard) → published Artifact
 - `reference/driving-the-app.md` — agent-browser usage + evidence conventions + REPORT.md format

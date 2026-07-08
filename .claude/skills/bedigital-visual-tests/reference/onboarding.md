@@ -4,14 +4,25 @@ First time only. Goal: produce a committed recipe the scripts can drive, then bu
 
 > **TRUST BOUNDARY.** `sandbox.sh` **sources `recipe.env` as a shell script on your host**, and `RESET_CMD` runs through `bash -c` on the host — not inside Docker. Only the app code is sandboxed; the recipe is executed with your user's privileges. A committed recipe from an untrusted repo can therefore run arbitrary commands on your machine. **Only onboard/run repositories you trust.** For untrusted code, read `recipe.env` first and prefer running the reseed **in-container** (a compose `run` against the DB service) over a host-side `RESET_CMD`.
 
-## 1. Detect the stack — signal ladder (stop at the first that applies)
+## 1. Onboard around the web SURFACE, not the config files
 
-1. **Explicit config wins.** `docker-compose.yml` / `compose.yaml` → reuse it (SHAPE A override). `devcontainer.json` → honor its image/build/postCreate. A `Dockerfile` → reuse as the app image.
-2. **Lockfile picks the package manager** — never guess. `pnpm-lock.yaml`→pnpm, `package-lock.json`→npm, `yarn.lock`→yarn, `bun.lockb`→bun; `uv.lock`→uv, `poetry.lock`→poetry, `requirements.txt`→pip; `go.mod`, `Cargo.toml`, etc.
-3. **Marker files pick the runtime/version.** `engines`/`packageManager` in package.json, `.nvmrc`, `.python-version`, `go.mod` version.
-4. **Scripts / framework config infer build & start.** `package.json` scripts (`build`, `start`, `dev`), `next.config.*`, framework defaults (Next→3000, Vite preview→4173, Express→often 3000/4000/8000).
-5. **Find the data + env contract.** ORM/migrations (`prisma/`, `alembic`, `knexfile`, `drizzle.config`) and their migrate+seed commands — record these as `MIGRATE_CMD`/`SEED_CMD` in the recipe (run via `$COMPOSE run --rm <svc>` / `$COMPOSE exec -T <svc> …`), since the DB image will not seed your app's data itself; `.env.example` lists every required variable; note the **connection string var** (usually `DATABASE_URL`).
-6. **Fallback: ask the user.** If any of the above is ambiguous, ask — don't guess build/start/health.
+The one question that decides everything: **what single URL does the browser hit, and does the app already produce it from a clean checkout?** Answer that first — a `docker-compose.yml` existing does *not* mean it serves the browser-facing app (it may run backing services only, omit the frontend, or depend on gitignored env). Pick the shape from the surface, then fill in the mechanics.
+
+**Four shapes (choose by the surface):**
+
+1. **`single-web-no-db`** — one static/SSR app on one port, no database. SPA (Vite/CRA/Next-export), a static server, a lone SSR app. Simplest: build it, publish `"0:<port>"`, health-gate `/`.
+2. **`single-web-db`** — one app server + a database it migrates/seeds. Rails/Django/Laravel/FastAPI/Next-with-DB. Wire `MIGRATE_CMD`/`SEED_CMD` (the DB image will **not** seed your app's data). Template: `templates/single-web-db/`.
+3. **`split-web-api-db`** — a separate frontend and backend the browser must see as **one origin** (so auth cookies/CORS/build-time public env work). Put a reverse proxy in front (`/api`→backend, rest→frontend) and make it `APP_SERVICE`. Template: `templates/split-web-api-db/`.
+4. **`existing-compose-override`** — the repo's own compose already serves the full browser surface and is close to sandbox-ready. Layer a sanitizing SHAPE A override on it. Only choose this once you've confirmed the compose actually serves the surface — otherwise fall back to 1–3 (SHAPE B).
+
+Then fill in the mechanics, none framework-specific:
+- **Lockfile picks the package manager** (for `LOCKFILES` + the base build) — never guess. `pnpm-lock.yaml`→pnpm, `package-lock.json`→npm, `yarn.lock`→yarn, `bun.lockb`→bun; `uv.lock`→uv, `poetry.lock`→poetry; else the dependency **manifest** (`pyproject.toml`, `go.mod`, `Cargo.toml`, bare `package.json`) — hash whatever declares deps.
+- **Runtime/version** from `engines`/`packageManager`, `.nvmrc`, `.python-version`, `go.mod`.
+- **Build & start** from `package.json` scripts / framework defaults (Next→3000, Vite preview→4173, Express→3000/4000/8000).
+- **Data + env contract:** ORM/migrations (`prisma/`, `alembic`, `knexfile`, `drizzle.config`) and their migrate+seed commands → `MIGRATE_CMD`/`SEED_CMD` (run via `$COMPOSE run --rm <svc>` / `$COMPOSE exec -T <svc> …`); `.env.example` lists required vars; note the connection-string var (usually `DATABASE_URL`).
+- **When in doubt, ask the user** — don't guess build/start/health.
+
+**Then run `sandbox.sh doctor`** — it statically validates the authored recipe + rendered compose (lockfiles committed, `APP_SERVICE` publishes `APP_PORT` ephemerally, no fixed `container_name`/bind-mounts/ports, slot services exist, env_files committed) and prints concrete FAIL/WARN lines *before* the slow build. `onboard` runs it automatically and refuses to build on any FAIL.
 
 ## 2. Author the recipe (into the target repo's `.bedigital-visual-tests/`)
 

@@ -1,0 +1,96 @@
+# split-web-api-db — self-contained sandbox: postgres + backend + frontend behind
+# a Caddy reverse proxy that makes them ONE origin. The browser hits caddy only;
+# caddy routes /api (+ probes) -> backend, everything else -> frontend. This is
+# the general fix whenever cookies / CORS / build-time public API URLs assume the
+# API is same-origin as the app (e.g. Next `rewrites()` and NEXT_PUBLIC_*, Vite
+# VITE_* — these bake at BUILD time, so you can't reroute /api with a runtime env;
+# the proxy handles it instead of rebuilding the frontend).
+#
+# Boot order (sandbox.sh, with MIGRATE_CMD/SEED_CMD set):
+#   postgres healthy -> MIGRATE_CMD -> SEED_CMD -> backend+frontend -> caddy.
+name: <app>-bdvt
+
+# Caddy config injected inline (no host bind-mount needed). Adjust the @api match
+# to your backend's paths (health/docs probes included so HEALTH_PATH can hit the
+# backend through the proxy).
+configs:
+  caddyfile:
+    content: |
+      :80 {
+        @api path /api/* /healthz /readyz /docs /openapi.json   # <-- your backend paths
+        handle @api {
+          reverse_proxy backend:<BACKEND_PORT> {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+          }
+        }
+        handle {
+          reverse_proxy frontend:<FRONTEND_PORT>
+        }
+      }
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://app:app@postgres:5432/app     # <-- match your driver/URL
+  # AUTH_COOKIE_SECURE: "false"                            # <-- cookies over HTTP in the sandbox
+  # CORS is a non-issue: the browser is same-origin with caddy.
+  # <add every secret the backend needs to BOOT — throwaway values only>
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: app, POSTGRES_PASSWORD: app, POSTGRES_DB: app }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    profiles: ["tools"]
+    build: { context: ./backend, dockerfile: Dockerfile }  # <-- backend image
+    command: [<your migrate command>]
+    environment: *backend-env
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+  seed:
+    profiles: ["tools"]
+    build: { context: ./backend, dockerfile: Dockerfile }
+    command: [<your seed command>]                         # MUST create a deterministic TEST USER
+    environment: *backend-env
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+  backend:
+    build: { context: ./backend, dockerfile: Dockerfile }
+    environment: *backend-env
+    depends_on: { postgres: { condition: service_healthy } }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:<BACKEND_PORT>/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  frontend:
+    build:
+      context: ./frontend                                  # <-- frontend image
+      dockerfile: Dockerfile
+      # If the frontend bakes a same-origin relative API base (e.g. /api), the
+      # proxy makes that Just Work. If it needs a build-time public var, pass it:
+      # args: { NEXT_PUBLIC_API_BASE_URL: /api }
+    depends_on: { backend: { condition: service_healthy } }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:<FRONTEND_PORT>/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  proxy:
+    image: caddy:2-alpine
+    configs:
+      - { source: caddyfile, target: /etc/caddy/Caddyfile }
+    ports:
+      - "0:80"                                             # ephemeral host port; APP_PORT=80
+    depends_on:
+      backend: { condition: service_healthy }
+      frontend: { condition: service_healthy }

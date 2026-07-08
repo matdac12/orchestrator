@@ -1,0 +1,56 @@
+# single-web-db — self-contained sandbox: postgres + one app server that the
+# recipe migrates & seeds. Fill every <...>. `migrate`/`seed` are profile-gated
+# one-shots the recipe's MIGRATE_CMD/SEED_CMD invoke via `$COMPOSE run --rm`.
+#
+# Boot order (handled by sandbox.sh when MIGRATE_CMD/SEED_CMD are set):
+#   postgres healthy -> MIGRATE_CMD -> SEED_CMD -> app -> health-gate.
+name: <app>-bdvt
+
+# Throwaway env every service shares. NEVER real secrets — inject dummy values
+# for anything the app needs to BOOT (see gotchas.md: missing secrets = the #1
+# reason a sandbox never goes healthy).
+x-app-env: &app-env
+  DATABASE_URL: postgresql://app:app@postgres:5432/app   # <-- match your driver/URL scheme
+  # SECRET_KEY_BASE: dev-only-not-a-real-secret          # <-- add each required boot secret
+  # AUTH_COOKIE_SECURE: "false"                          # <-- if the app sets Secure cookies (HTTP sandbox)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    profiles: ["tools"]
+    build: { context: ., dockerfile: Dockerfile }          # <-- your app image
+    command: [<your migrate command>]                      # e.g. ["alembic","upgrade","head"] / ["bin/rails","db:migrate"] / ["npx","prisma","migrate","deploy"]
+    environment: *app-env
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+  seed:
+    profiles: ["tools"]
+    build: { context: ., dockerfile: Dockerfile }
+    command: [<your seed command>]                         # MUST create a deterministic TEST USER for the browser to log in with
+    environment: *app-env
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+  app:
+    build: { context: ., dockerfile: Dockerfile }
+    environment: *app-env
+    depends_on: { postgres: { condition: service_healthy } }
+    ports:
+      - "0:<PORT>"                                         # ephemeral host port; <PORT> = APP_PORT
+    healthcheck:
+      test: ["CMD-SHELL", "<health probe, e.g. curl -fsS http://localhost:<PORT><HEALTH_PATH> || exit 1>"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
