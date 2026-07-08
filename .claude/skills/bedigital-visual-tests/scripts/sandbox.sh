@@ -38,9 +38,14 @@ load_recipe() {
   #   LOCKFILES     space-separated lockfile globs for the hash (required)
   #   BASE_COMPOSE  repo compose to layer the override under    (optional)
   #   DATA_SERVICES stateful services `reset` recreates          (default postgres)
-  #   RESET_CMD     custom reseed command for `reset`            (optional; SHAPE A)
+  #   MIGRATE_CMD   schema/migration slot, run via $COMPOSE       (optional)
+  #   SEED_CMD      data-seed slot, run via $COMPOSE              (optional)
+  #   RESET_RESTART_SERVICES services `reset` restarts in place  (default APP_SERVICE)
+  #   RESET_CMD     full reseed OVERRIDE for `reset`             (optional escape hatch)
   # TRUST: this sources the target repo's committed recipe as SHELL on the HOST
-  # (and RESET_CMD runs via `bash -c` on the host) — NOT sandboxed in Docker.
+  # (and MIGRATE_CMD/SEED_CMD/RESET_CMD run via `bash -c` on the host, though by
+  # convention their bodies are `$COMPOSE run/exec …` so the work happens IN a
+  # container) — NOT sandboxed in Docker.
   # Only run this skill on repositories you trust. See SKILL.md / onboarding.md.
   # shellcheck disable=SC1090
   source "$RECIPE"
@@ -50,6 +55,9 @@ load_recipe() {
   HEALTH_PATH="${HEALTH_PATH:-/}"
   BASE_COMPOSE="${BASE_COMPOSE:-}"
   DATA_SERVICES="${DATA_SERVICES:-postgres}"
+  MIGRATE_CMD="${MIGRATE_CMD:-}"
+  SEED_CMD="${SEED_CMD:-}"
+  RESET_RESTART_SERVICES="${RESET_RESTART_SERVICES:-$APP_SERVICE}"
   RESET_CMD="${RESET_CMD:-}"
 }
 
@@ -112,6 +120,42 @@ compose_files() {
   [ -n "$BASE_COMPOSE" ] && args+=(-f "$BASE_COMPOSE")
   args+=(-f "$BVT_DIR/sandbox.compose.yml")
   printf '%s\n' "${args[@]}"
+}
+
+# ---- lifecycle helpers (shared by up + reset) ------------------------------
+# Resolve the published host port of APP_SERVICE, parsed to just the port so an
+# IPv6 bind (`[::]:32768`) or multiple bindings still reduce to the number.
+# cd's into $wt so the relative compose paths resolve.
+app_hostport() {  # args: proj wt
+  local proj="$1" wt="$2"; local cf; mapfile -t cf < <(compose_files)
+  ( cd "$wt" && docker compose -p "$proj" "${cf[@]}" port "$APP_SERVICE" "$APP_PORT" ) \
+    | head -n1 | sed 's/.*://'
+}
+
+# Poll HEALTH_PATH on the published URL until it returns 200 (or times out).
+# 0 = healthy. One source of truth for both `up` and post-`reset` gating.
+wait_for_health() {  # args: url
+  local url="$1" _
+  for _ in $(seq 1 60); do
+    curl -fsS -o /dev/null "${url}${HEALTH_PATH}" && return 0
+    sleep 2
+  done
+  return 1
+}
+
+# Run a MIGRATE_CMD/SEED_CMD lifecycle slot with $COMPOSE and $PROJ in scope,
+# exactly as the recipe author would type it — by convention `$COMPOSE run --rm
+# <svc>` or `$COMPOSE exec -T <svc> …`, so the migrate/seed work runs INSIDE a
+# container, not as host shell. No-op when the slot is empty.
+# TRUST: like RESET_CMD, the slot string is the committed recipe executed on the
+# host via `bash -c` — only run trusted repos (see load_recipe).
+run_slot() {  # args: label proj wt run baseimg cmd
+  local label="$1" proj="$2" wt="$3" run="$4" baseimg="$5" cmd="$6"
+  [ -n "$cmd" ] || return 0
+  local cf; mapfile -t cf < <(compose_files)
+  echo ">> $label"
+  ( cd "$wt" && BASE_IMAGE="$baseimg" BDVT_RUN="$run" \
+      COMPOSE="docker compose -p $proj ${cf[*]}" PROJ="$proj" bash -c "$cmd" )
 }
 
 cmd_status() {
@@ -205,29 +249,40 @@ cmd_up() {
         fi' EXIT
 
   echo ">> Spinning sandbox (project $proj, ephemeral port)..."
+  # BDVT_RUN lets the override interpolate per-run-unique container names
+  # (fixed container_name is global and breaks isolation — see gotchas.md).
+  if [ -n "$MIGRATE_CMD" ] || [ -n "$SEED_CMD" ]; then
+    # Data-backed app: build images, bring the DATA layer up HEALTHY first, then
+    # run the migrate + seed slots BEFORE the app boots — so the app never starts
+    # against an empty/unmigrated DB. (Apps that already encode this ordering in
+    # compose via depends_on: service_completed_successfully just leave the slots
+    # empty and fall through to the single `up` below.)
+    (
+      cd "$wt"
+      export BASE_IMAGE="$baseimg" BDVT_RUN="$run" DOCKER_BUILDKIT=1
+      docker compose -p "$proj" "${cf[@]}" build
+      set -f
+      # shellcheck disable=SC2086
+      docker compose -p "$proj" "${cf[@]}" up -d --no-deps --wait $DATA_SERVICES
+      set +f
+    )
+    run_slot "Running MIGRATE_CMD" "$proj" "$wt" "$run" "$baseimg" "$MIGRATE_CMD"
+    run_slot "Running SEED_CMD"    "$proj" "$wt" "$run" "$baseimg" "$SEED_CMD"
+  fi
   (
     cd "$wt"
-    # BDVT_RUN lets the override interpolate per-run-unique container names
-    # (fixed container_name is global and breaks isolation — see gotchas.md).
     BASE_IMAGE="$baseimg" BDVT_RUN="$run" DOCKER_BUILDKIT=1 \
       docker compose -p "$proj" "${cf[@]}" up -d --build
   )
 
-  # Ephemeral host port: the override maps "0:APP_PORT" so Docker picks a free
-  # one. Take the FIRST binding line, then the port after the LAST colon so an
-  # IPv6 bind (`[::]:32768`) or multiple bindings still parse to just the port.
+  # Ephemeral host port: the override maps "0:APP_PORT" so Docker picks a free one.
   local hostport url
-  hostport=$( (cd "$wt" && docker compose -p "$proj" "${cf[@]}" port "$APP_SERVICE" "$APP_PORT") | head -n1 | sed 's/.*://')
+  hostport=$(app_hostport "$proj" "$wt")
   [ -n "$hostport" ] || die "could not resolve published port for $APP_SERVICE:$APP_PORT"
   url="http://localhost:$hostport"
 
   echo ">> Waiting for health at ${url}${HEALTH_PATH} ..."
-  local ok=""
-  for _ in $(seq 1 60); do
-    if curl -fsS -o /dev/null "${url}${HEALTH_PATH}"; then ok=1; break; fi
-    sleep 2
-  done
-  if [ -z "$ok" ]; then
+  if ! wait_for_health "$url"; then
     echo "!! App never became healthy. Recent logs:" >&2
     (cd "$wt" && docker compose -p "$proj" "${cf[@]}" logs --tail 40 "$APP_SERVICE") >&2 || true
     echo "   (Most common cause: missing secrets/env — see reference/gotchas.md)" >&2
@@ -268,33 +323,60 @@ cmd_reset() {
   local proj wt run; proj=$(sed -n 1p "$runfile"); wt=$(sed -n 2p "$runfile"); run=$(sed -n 3p "$runfile")
   [ -n "$run" ] || run="${proj#bdvt-$(repo_slug)-}"
   [ -d "$wt" ] || die "recorded worktree missing ($wt) — run 'up' again"
+  local baseimg; baseimg=$(base_image)   # computed at repo root (correct slug/hash)
   local cf; mapfile -t cf < <(compose_files)
-  echo ">> Resetting sandbox data (fresh seeded DB; app stays up)..."
+  echo ">> Resetting sandbox data (fresh seeded DB; app restarts in place)..."
   (
     cd "$wt"
     export BDVT_RUN="$run"
     if [ -n "$RESET_CMD" ]; then
-      # SHAPE A / custom: recipe author's reseed command. $COMPOSE and $PROJ are
-      # provided; e.g. RESET_CMD='$COMPOSE --profile seed run --rm seed'
+      # ESCAPE HATCH: the recipe author owns the entire reseed lifecycle.
+      # $COMPOSE and $PROJ are provided. When set, MIGRATE_CMD/SEED_CMD are NOT
+      # auto-run here (RESET_CMD is expected to include them).
       COMPOSE="docker compose -p $proj ${cf[*]}" PROJ="$proj" bash -c "$RESET_CMD"
     else
-      # Default (SHAPE B): drop the data services + their anonymous volumes so the
-      # image's initdb/seed re-runs on recreate. --no-deps so compose does NOT
-      # touch the app container — restarting/recreating it would reassign its
-      # ephemeral host port and invalidate the SANDBOX_URL already in use. The app
-      # reconnects lazily on its next query (its connection pool must tolerate a
-      # dropped DB — a production-grade pool does; see gotchas.md).
-      # DATA_SERVICES is intentionally word-split (multiple services); `set -f`
-      # keeps a name from being pathname-expanded against the cwd.
+      # Default lifecycle: recreate the data services + their anonymous volumes
+      # (fresh empty DB), then re-run the migrate + seed slots below. This
+      # replaces the old "the DB image's initdb re-seeds itself" assumption, which
+      # is false for apps that seed via migrations/commands (Rails, Django,
+      # FastAPI, Prisma …). --no-deps + --wait: recreate ONLY the data services
+      # and block until they are healthy before migrate runs. DATA_SERVICES is
+      # word-split (may be several services); `set -f` stops pathname expansion.
       set -f
       # shellcheck disable=SC2086
       docker compose -p "$proj" "${cf[@]}" rm -v -sf $DATA_SERVICES
       # shellcheck disable=SC2086
-      docker compose -p "$proj" "${cf[@]}" up -d --no-deps $DATA_SERVICES
+      docker compose -p "$proj" "${cf[@]}" up -d --no-deps --wait $DATA_SERVICES
       set +f
     fi
   )
-  echo ">> Reset done — DB reseeded."
+  if [ -z "$RESET_CMD" ]; then
+    run_slot "Running MIGRATE_CMD" "$proj" "$wt" "$run" "$baseimg" "$MIGRATE_CMD"
+    run_slot "Running SEED_CMD"    "$proj" "$wt" "$run" "$baseimg" "$SEED_CMD"
+  fi
+  # Restart the app IN PLACE so it drops any stale DB pool / prepared statements
+  # bound to the destroyed DB. `restart` keeps the existing container, so its
+  # ephemeral host port (and the SANDBOX_URL already handed to the driver) is
+  # preserved — unlike `up --force-recreate`, which would reassign the port.
+  if [ -n "$RESET_RESTART_SERVICES" ]; then
+    set -f
+    # shellcheck disable=SC2086
+    ( cd "$wt" && docker compose -p "$proj" "${cf[@]}" restart $RESET_RESTART_SERVICES ) || true
+    set +f
+  fi
+  # Re-gate on health so the next mission never starts against a half-reset app.
+  local hostport url
+  hostport=$(app_hostport "$proj" "$wt")
+  if [ -n "$hostport" ]; then
+    url="http://localhost:$hostport"
+    echo ">> Waiting for health at ${url}${HEALTH_PATH} ..."
+    if ! wait_for_health "$url"; then
+      echo "!! App not healthy after reset. Recent logs:" >&2
+      (cd "$wt" && docker compose -p "$proj" "${cf[@]}" logs --tail 40 "$APP_SERVICE") >&2 || true
+      die "reset left the sandbox unhealthy"
+    fi
+  fi
+  echo ">> Reset done — data reseeded, app healthy."
 }
 
 cmd_nuke() {

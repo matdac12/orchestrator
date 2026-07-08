@@ -60,7 +60,7 @@ All commands run from the target repo root. `SKILL_DIR` = this skill's directory
 | Is this repo onboarded? / is the base current? | `"$SKILL_DIR/scripts/sandbox.sh" status` |
 | First-time onboard (after you've authored the recipe) | `"$SKILL_DIR/scripts/sandbox.sh" onboard` |
 | Spin a fresh isolated sandbox, print its URL | `"$SKILL_DIR/scripts/sandbox.sh" up` |
-| Restore a clean seeded DB between missions (app stays up) | `"$SKILL_DIR/scripts/sandbox.sh" reset` |
+| Restore a clean seeded DB between missions (recreate data → migrate → seed → restart app → re-gate health) | `"$SKILL_DIR/scripts/sandbox.sh" reset` |
 | Tear down THIS run's sandbox | `"$SKILL_DIR/scripts/sandbox.sh" down` |
 | Remove the base image too (force re-onboard) | `"$SKILL_DIR/scripts/sandbox.sh" nuke` |
 

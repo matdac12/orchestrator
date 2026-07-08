@@ -10,7 +10,7 @@ First time only. Goal: produce a committed recipe the scripts can drive, then bu
 2. **Lockfile picks the package manager** — never guess. `pnpm-lock.yaml`→pnpm, `package-lock.json`→npm, `yarn.lock`→yarn, `bun.lockb`→bun; `uv.lock`→uv, `poetry.lock`→poetry, `requirements.txt`→pip; `go.mod`, `Cargo.toml`, etc.
 3. **Marker files pick the runtime/version.** `engines`/`packageManager` in package.json, `.nvmrc`, `.python-version`, `go.mod` version.
 4. **Scripts / framework config infer build & start.** `package.json` scripts (`build`, `start`, `dev`), `next.config.*`, framework defaults (Next→3000, Vite preview→4173, Express→often 3000/4000/8000).
-5. **Find the data + env contract.** ORM/migrations (`prisma/`, `alembic`, `knexfile`, `drizzle.config`) and their migrate+seed commands; `.env.example` lists every required variable; note the **connection string var** (usually `DATABASE_URL`).
+5. **Find the data + env contract.** ORM/migrations (`prisma/`, `alembic`, `knexfile`, `drizzle.config`) and their migrate+seed commands — record these as `MIGRATE_CMD`/`SEED_CMD` in the recipe (run via `$COMPOSE run --rm <svc>` / `$COMPOSE exec -T <svc> …`), since the DB image will not seed your app's data itself; `.env.example` lists every required variable; note the **connection string var** (usually `DATABASE_URL`).
 6. **Fallback: ask the user.** If any of the above is ambiguous, ask — don't guess build/start/health.
 
 ## 2. Author the recipe (into the target repo's `.bedigital-visual-tests/`)

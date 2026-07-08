@@ -46,7 +46,7 @@ Rules for good missions:
 
 ## 2. Delegate — run one mission
 
-Spawn **one subagent per mission**, sequentially, using `DELEGATE_MODEL` from the recipe (default `claude-sonnet-5`). Before each delegate: `sandbox.sh reset` so it starts from a clean, seeded DB (adversarial missions mutate state).
+Spawn **one subagent per mission**, sequentially, using `DELEGATE_MODEL` from the recipe (default `claude-sonnet-5`). Before each delegate: `sandbox.sh reset` so it starts from a clean, seeded DB (adversarial missions mutate state). `reset` recreates the data services, re-runs the recipe's `MIGRATE_CMD`/`SEED_CMD`, restarts the app in place (fresh DB pool, same `SANDBOX_URL`), and re-polls `HEALTH_PATH` — so a mission never starts against a half-reset app. It fails loudly if health doesn't come back.
 
 Give the delegate: the **mission**, the **`SANDBOX_URL`** and **`EVIDENCE_DIR`** from `up`, and a pointer to `reference/driving-the-app.md`. The delegate:
 - Drives the app with **agent-browser** per `driving-the-app.md` (screenshots each step into `EVIDENCE_DIR`, captures console + network, uses the seeded test user — never real creds).
