@@ -1,9 +1,9 @@
 # single-web-db — self-contained sandbox: postgres + one app server that the
-# recipe migrates & seeds. Fill every <...>. `migrate`/`seed` are profile-gated
-# one-shots the recipe's MIGRATE_CMD/SEED_CMD invoke via `$COMPOSE run --rm`.
+# recipe migrates & seeds. Fill every <...>. MIGRATE_CMD/SEED_CMD run as a
+# one-shot `compose run` on the app image (SEED_SERVICE defaults to APP_SERVICE).
 #
-# Boot order (handled by sandbox.sh when MIGRATE_CMD/SEED_CMD are set):
-#   postgres healthy -> MIGRATE_CMD -> SEED_CMD -> app -> health-gate.
+# Boot order (handled by sandbox.sh when SEED_STRATEGY != initdb):
+#   postgres healthy -> MIGRATE_CMD -> SEED_CMD (in-container) -> app -> health-gate.
 name: <app>-bdvt
 
 # Throwaway env every service shares. NEVER real secrets — inject dummy values
@@ -26,22 +26,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-
-  migrate:
-    profiles: ["tools"]
-    build: { context: ., dockerfile: Dockerfile }          # <-- your app image
-    command: [<your migrate command>]                      # e.g. ["alembic","upgrade","head"] / ["bin/rails","db:migrate"] / ["npx","prisma","migrate","deploy"]
-    environment: *app-env
-    depends_on: { postgres: { condition: service_healthy } }
-    restart: "no"
-
-  seed:
-    profiles: ["tools"]
-    build: { context: ., dockerfile: Dockerfile }
-    command: [<your seed command>]                         # MUST create a deterministic TEST USER for the browser to log in with
-    environment: *app-env
-    depends_on: { postgres: { condition: service_healthy } }
-    restart: "no"
 
   app:
     build: { context: ., dockerfile: Dockerfile }

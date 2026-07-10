@@ -73,11 +73,13 @@ All commands run from the target repo root. `SKILL_DIR` = this skill's directory
 
 Follow `reference/onboarding.md`. In short: onboard around the **web surface** — *what single URL does the browser hit, and does the app already produce it from a clean checkout?* — and pick one of four shapes (`single-web-no-db`, `single-web-db`, `split-web-api-db`, `existing-compose-override`), each with a starter in `templates/` (see `templates/README.md`). A `docker-compose.yml` existing does NOT mean it serves the browser-facing app. Then **write the recipe** into the target repo and **confirm it with the user before building**:
 
-- `.bedigital-visual-tests/recipe.env` — sourced by the scripts (app service, container port, health path, lockfile globs, optional base compose, and the `MIGRATE_CMD`/`SEED_CMD` data-lifecycle slots).
+- `.bedigital-visual-tests/recipe.env` — sourced by the scripts (app service, container port, health path, lockfile globs, optional base compose, and the `SEED_STRATEGY` + `MIGRATE_CMD`/`SEED_CMD` data-lifecycle slots).
 - `.bedigital-visual-tests/sandbox.compose.yml` — the sandbox definition: either a **sanitizing override** layered on the repo's existing compose, or a self-contained compose (start from a `templates/` scaffold or `templates/Dockerfile.base.example`).
 - Commit `recipe.env` + `sandbox.compose.yml`. `.bedigital-visual-tests/evidence/` is gitignored.
 
-Then run `sandbox.sh doctor` (fast static preflight — lockfiles committed, `APP_SERVICE` publishes `APP_PORT`, no fixed `container_name`/bind-mounts, slot services exist, env_files committed) and fix any **FAIL**; `sandbox.sh onboard` runs it automatically and refuses to build on a FAIL. **Secrets are the #1 real blocker** — if the app needs vault keys / JWT / API keys to boot, record them in the recipe and inject throwaway values; the health-gate will otherwise hang. See `reference/gotchas.md`.
+If the app has **auth** or needs **DB seeding beyond the image's initdb**, also fill the recipe's auth/seeding blocks: throwaway `TEST_USER`/`TEST_PASSWORD`/`LOGIN_PATH` (the seed creates that user *confirmed*; the delegate logs in through the real form) and `SEED_STRATEGY` (+ `MIGRATE_CMD`/`SEED_CMD`, run in-container against the throwaway DB). Never inject a real/VPS `DATABASE_URL` — replicate that DB locally. See `reference/onboarding.md` §5. **Supabase apps:** run a local Supabase stack in the sandbox and seed a confirmed user via the admin API — see `reference/supabase.md`.
+
+Then run `sandbox.sh doctor` (fast static preflight — lockfiles committed, `APP_SERVICE` publishes `APP_PORT`, no fixed `container_name`/bind-mounts, seed service exists, env_files committed) and fix any **FAIL**; `sandbox.sh onboard` runs it automatically and refuses to build on a FAIL. **Secrets are the #1 real blocker** — if the app needs vault keys / JWT / API keys to boot, record them in the recipe and inject throwaway values; the health-gate will otherwise hang. See `reference/gotchas.md`.
 
 ### 2. Spin the sandbox
 
@@ -123,7 +125,11 @@ The autonomous review flow. Full playbook in **`reference/reviewing.md`**; in sh
 - `templates/recipe.env.example` — the recipe schema, documented (incl. migrate/seed slots + model policy)
 - `templates/sandbox.compose.example.yml` — sanitizing-override + self-contained examples
 - `templates/Dockerfile.base.example` — fallback base image when the repo has no Docker assets
-- `reference/onboarding.md` — onboard by web surface (4 shapes) + authoring the recipe + `doctor` + secrets
+- `templates/supabase.sandbox.compose.example.yml` + `templates/supabase/` (roles/jwt/gateway) + `templates/seed-supabase-user.mjs` — the Supabase sandbox stack
+- `templates/snapshot-and-mask.mjs` + `templates/snapshot.config.example.json` — the read-only, PII-masking snapshot tool + its config schema
+- `reference/onboarding.md` — onboard by web surface (4 shapes) + authoring the recipe + `doctor` + secrets + auth/seeding (§5)
+- `reference/supabase.md` — local-Supabase-in-sandbox playbook: stack, confirmed-user seed via admin API, the NEXT_PUBLIC/ephemeral-port trap → server-side auth
+- `reference/snapshot.md` — sanitized real-data snapshot: the OPT-IN masking guardrails (read-only pull, mask PII before it lands, load at runtime, scoped)
 - `reference/reviewing.md` — the review-mode playbook: planner (diff → missions), delegate (drive + repro + fix), aggregator (REVIEW.md)
 - `reference/reporting.md` — the rich report: findings.json → `review.html` (inlined screenshots + storyboard) → published Artifact
 - `reference/driving-the-app.md` — agent-browser usage + evidence conventions + REPORT.md format

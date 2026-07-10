@@ -6,7 +6,7 @@
 #   doctor   static preflight: validate the recipe + rendered compose (no build)
 #   onboard  build the base image (deps baked in), stamp the lockfile hash
 #   up       spin a fresh, isolated sandbox from COMMITTED code; print its URL
-#   reset    restore a clean seeded DB on the active sandbox (app stays up)
+#   reset    restore a clean seeded DB on the active sandbox (same SANDBOX_URL)
 #   down     tear down the last run's sandbox
 #   nuke     also drop the base image / stamp (force a re-onboard)
 #
@@ -40,15 +40,21 @@ load_recipe() {
   #   LOCKFILES     space-separated lockfile globs for the hash (required)
   #   BASE_COMPOSE  repo compose to layer the override under    (optional)
   #   DATA_SERVICES stateful services `reset` recreates          (default postgres)
-  #   MIGRATE_CMD   schema/migration slot, run via $COMPOSE       (optional)
-  #   SEED_CMD      data-seed slot, run via $COMPOSE              (optional)
-  #   RESET_RESTART_SERVICES services `reset` restarts in place  (default APP_SERVICE)
   #   RESET_CMD     full reseed OVERRIDE for `reset`             (optional escape hatch)
+  #   -- DB seeding (optional; unset ⇒ image initdb only, unchanged) --
+  #   SEED_STRATEGY initdb | migrations | synthetic | snapshot   (default initdb)
+  #   SEED_SERVICE  compose service whose image runs the seed    (default APP_SERVICE)
+  #   MIGRATE_CMD   in-container command to build the schema      (optional)
+  #   SEED_CMD      in-container command to load data + test user (optional)
+  #   RESET_RESTART_SERVICES services `reset` restarts in place  (default APP_SERVICE)
+  #   -- auth (optional; unset ⇒ no-auth app, unchanged) --
+  #   TEST_USER/TEST_PASSWORD  throwaway seeded creds (sandbox-only → safe to commit)
+  #   LOGIN_PATH/POST_LOGIN_PATH  where the delegate logs in / lands
   # TRUST: this sources the target repo's committed recipe as SHELL on the HOST
-  # (and MIGRATE_CMD/SEED_CMD/RESET_CMD run via `bash -c` on the host, though by
-  # convention their bodies are `$COMPOSE run/exec …` so the work happens IN a
-  # container) — NOT sandboxed in Docker.
-  # Only run this skill on repositories you trust. See SKILL.md / onboarding.md.
+  # (and RESET_CMD runs via `bash -c` on the host) — NOT sandboxed in Docker.
+  # MIGRATE_CMD/SEED_CMD, by contrast, run IN-CONTAINER (`compose run`) against the
+  # throwaway DB — the host is not their execution context. Only run this skill on
+  # repositories you trust. See SKILL.md / onboarding.md.
   # shellcheck disable=SC1090
   source "$RECIPE"
   : "${APP_SERVICE:?recipe missing APP_SERVICE}"
@@ -57,10 +63,44 @@ load_recipe() {
   HEALTH_PATH="${HEALTH_PATH:-/}"
   BASE_COMPOSE="${BASE_COMPOSE:-}"
   DATA_SERVICES="${DATA_SERVICES:-postgres}"
+  RESET_CMD="${RESET_CMD:-}"
+  SEED_STRATEGY="${SEED_STRATEGY:-initdb}"
+  SEED_SERVICE="${SEED_SERVICE:-}"
   MIGRATE_CMD="${MIGRATE_CMD:-}"
   SEED_CMD="${SEED_CMD:-}"
   RESET_RESTART_SERVICES="${RESET_RESTART_SERVICES:-$APP_SERVICE}"
-  RESET_CMD="${RESET_CMD:-}"
+  TEST_USER="${TEST_USER:-}"
+  TEST_PASSWORD="${TEST_PASSWORD:-}"
+  LOGIN_PATH="${LOGIN_PATH:-}"
+  POST_LOGIN_PATH="${POST_LOGIN_PATH:-}"
+}
+
+# Run the recipe's migration/seed commands IN-CONTAINER against the throwaway DB.
+# No-op for the default (SEED_STRATEGY=initdb) — the Postgres image's initdb
+# already seeds when its anonymous volume is (re)created, so existing recipes are
+# unaffected. For `migrations`/`synthetic`/`snapshot`, runs MIGRATE_CMD then
+# SEED_CMD as a one-shot `compose run` on the sandbox network, using the
+# SEED_SERVICE image (default: the app image, which typically carries the
+# migration CLI). Callers MUST be cd'd into the run's HEAD worktree with
+# BASE_IMAGE/BDVT_RUN exported so the compose spec resolves — same context as the
+# surrounding `up`/`reset` compose calls.
+# $1 = compose project name. Rebuilds the -f file list itself (pure, reads globals).
+seed_db() {
+  local proj="$1"
+  [ "$SEED_STRATEGY" != initdb ] || return 0
+  local script=""
+  [ -n "$MIGRATE_CMD" ] && script="$MIGRATE_CMD"
+  [ -n "$SEED_CMD" ] && script="${script:+$script && }$SEED_CMD"
+  if [ -z "$script" ]; then
+    echo ">> SEED_STRATEGY=$SEED_STRATEGY but neither MIGRATE_CMD nor SEED_CMD set — nothing to seed." >&2
+    return 0
+  fi
+  local svc="${SEED_SERVICE:-$APP_SERVICE}"
+  local cf; mapfile -t cf < <(compose_files)
+  echo ">> Seeding DB in-container ($SEED_STRATEGY) via '$svc': $script"
+  # --build so the seed image exists before the app's own build; --no-deps so we
+  # don't restart the already-healthy data services (which would reassign ports).
+  docker compose -p "$proj" "${cf[@]}" run --rm --build --no-deps "$svc" sh -lc "$script"
 }
 
 repo_slug() { basename "$(git rev-parse --show-toplevel)" | tr '[:upper:] ' '[:lower:]-'; }
@@ -145,21 +185,6 @@ wait_for_health() {  # args: url
   return 1
 }
 
-# Run a MIGRATE_CMD/SEED_CMD lifecycle slot with $COMPOSE and $PROJ in scope,
-# exactly as the recipe author would type it — by convention `$COMPOSE run --rm
-# <svc>` or `$COMPOSE exec -T <svc> …`, so the migrate/seed work runs INSIDE a
-# container, not as host shell. No-op when the slot is empty.
-# TRUST: like RESET_CMD, the slot string is the committed recipe executed on the
-# host via `bash -c` — only run trusted repos (see load_recipe).
-run_slot() {  # args: label proj wt run baseimg cmd
-  local label="$1" proj="$2" wt="$3" run="$4" baseimg="$5" cmd="$6"
-  [ -n "$cmd" ] || return 0
-  local cf; mapfile -t cf < <(compose_files)
-  echo ">> $label"
-  ( cd "$wt" && BASE_IMAGE="$baseimg" BDVT_RUN="$run" \
-      COMPOSE="docker compose -p $proj ${cf[*]}" PROJ="$proj" bash -c "$cmd" )
-}
-
 cmd_status() {
   require_repo; load_recipe
   local cur; cur=$(lockfile_hash)
@@ -210,8 +235,8 @@ cmd_doctor() {
     [ -f "$BASE_COMPOSE" ] && _p "BASE_COMPOSE exists: $BASE_COMPOSE" || _f "BASE_COMPOSE not found: $BASE_COMPOSE"
   fi
   if [ -f "$BVT_DIR/Dockerfile.base" ] || [ -f "$BVT_DIR/Dockerfile.sandbox" ]; then
-    [ -f ".dockerignore" ] && _p ".dockerignore present (SHAPE B build context)" \
-      || _w "no .dockerignore at repo root — SHAPE B may bake node_modules/.git/.env into the image"
+    [ -f ".dockerignore" ] && _p ".dockerignore present (self-contained build context)" \
+      || _w "no .dockerignore at repo root — the build may bake node_modules/.git/.env into the image"
   fi
 
   # Raw-file checks (pre-render): fixed container_name, and env_files that won't
@@ -244,7 +269,7 @@ cmd_doctor() {
     _p "compose config renders (BASE_IMAGE/BDVT_RUN interpolate)"
     # List services with ALL profiles enabled — `config --services` hides
     # profile-gated services (e.g. one-shot migrate/seed) by default, which would
-    # falsely flag a slot that targets them.
+    # falsely flag a seed service that lives behind a profile.
     local profs pr; profs=$(BASE_IMAGE="doctor" BDVT_RUN="doctor" docker compose "${cf[@]}" config --profiles 2>/dev/null)
     local prof_args=(); for pr in $profs; do prof_args+=(--profile "$pr"); done
     local svcs; svcs=$(BASE_IMAGE="doctor" BDVT_RUN="doctor" docker compose "${cf[@]}" ${prof_args[@]+"${prof_args[@]}"} config --services 2>/dev/null)
@@ -253,17 +278,14 @@ cmd_doctor() {
     local ds; for ds in $DATA_SERVICES; do
       grep -qx "$ds" <<<"$svcs" || _w "DATA_SERVICES entry '$ds' is not a defined service"
     done
-    # Slot commands should target a real service (heuristic: last token).
-    local sc scv
-    for sc in "MIGRATE_CMD:$MIGRATE_CMD" "SEED_CMD:$SEED_CMD"; do
-      local lbl="${sc%%:*}" body="${sc#*:}"
-      [ -n "$body" ] || continue
-      scv=$(echo "$body" | grep -oE '(run[[:space:]]+(--rm[[:space:]]+)?(-{1,2}[A-Za-z-]+[[:space:]]+)*|exec[[:space:]]+(-{1,2}[A-Za-z-]+[[:space:]]+)*)[A-Za-z0-9_.-]+' | grep -oE '[A-Za-z0-9_.-]+$' | head -1)
-      if [ -n "$scv" ]; then
-        grep -qx "$scv" <<<"$svcs" && _p "$lbl targets service '$scv'" \
-          || _w "$lbl references service '$scv' which is not defined in the compose"
-      fi
-    done
+    # Seeding contract: a strategy needs its seed service and at least one slot.
+    if [ "$SEED_STRATEGY" != initdb ]; then
+      local seedsvc="${SEED_SERVICE:-$APP_SERVICE}"
+      grep -qx "$seedsvc" <<<"$svcs" && _p "SEED_SERVICE '$seedsvc' is defined" \
+        || _f "SEED_SERVICE '$seedsvc' is not a service (SEED_STRATEGY=$SEED_STRATEGY needs it)"
+      [ -n "$MIGRATE_CMD$SEED_CMD" ] && _p "seed slots set (SEED_STRATEGY=$SEED_STRATEGY)" \
+        || _w "SEED_STRATEGY=$SEED_STRATEGY but neither MIGRATE_CMD nor SEED_CMD is set"
+    fi
     # Deep structural checks (ports/bind-mounts/container_name) via node.
     if have node; then
       local jf ndf; jf=$(mktemp); ndf=$(mktemp)
@@ -356,7 +378,10 @@ cmd_up() {
 
   # From here on, any failure before we print SANDBOX_URL leaves a half-built
   # sandbox + worktree + run-state; tear it all down. Cleared on success.
-  trap 'if [ -z "$up_ok" ]; then
+  # NOTE: use ${up_ok:-} — the EXIT trap fires after cmd_up's frame unwinds, so the
+  # `up_ok` local is out of scope by then; a bare $up_ok would trip `set -u` and mask
+  # the real failure with an "unbound variable" error instead of tearing down.
+  trap 'if [ -z "${up_ok:-}" ]; then
           echo "!! up failed — tearing down partial sandbox ($proj)" >&2
           ( cd "$wt" 2>/dev/null && docker compose -p "$proj" "${cf[@]}" down -v --remove-orphans ) >/dev/null 2>&1 || true
           git worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
@@ -365,30 +390,25 @@ cmd_up() {
         fi' EXIT
 
   echo ">> Spinning sandbox (project $proj, ephemeral port)..."
-  # BDVT_RUN lets the override interpolate per-run-unique container names
-  # (fixed container_name is global and breaks isolation — see gotchas.md).
-  if [ -n "$MIGRATE_CMD" ] || [ -n "$SEED_CMD" ]; then
-    # Data-backed app: build images, bring the DATA layer up HEALTHY first, then
-    # run the migrate + seed slots BEFORE the app boots — so the app never starts
-    # against an empty/unmigrated DB. (Apps that already encode this ordering in
-    # compose via depends_on: service_completed_successfully just leave the slots
-    # empty and fall through to the single `up` below.)
-    (
-      cd "$wt"
-      export BASE_IMAGE="$baseimg" BDVT_RUN="$run" DOCKER_BUILDKIT=1
-      docker compose -p "$proj" "${cf[@]}" build
-      set -f
-      # shellcheck disable=SC2086
-      docker compose -p "$proj" "${cf[@]}" up -d --no-deps --wait $DATA_SERVICES
-      set +f
-    )
-    run_slot "Running MIGRATE_CMD" "$proj" "$wt" "$run" "$baseimg" "$MIGRATE_CMD"
-    run_slot "Running SEED_CMD"    "$proj" "$wt" "$run" "$baseimg" "$SEED_CMD"
-  fi
   (
     cd "$wt"
-    BASE_IMAGE="$baseimg" BDVT_RUN="$run" DOCKER_BUILDKIT=1 \
+    # BDVT_RUN lets the override interpolate per-run-unique container names
+    # (fixed container_name is global and breaks isolation — see gotchas.md).
+    export BASE_IMAGE="$baseimg" BDVT_RUN="$run" DOCKER_BUILDKIT=1
+    if [ "$SEED_STRATEGY" != initdb ]; then
+      # Strategy needs the schema to exist BEFORE the app boots: bring up just the
+      # data services (health-gated), seed them in-container, then start the app.
+      # set -f so a multi-service DATA_SERVICES isn't pathname-expanded.
+      set -f
+      # shellcheck disable=SC2086
+      docker compose -p "$proj" "${cf[@]}" up -d --wait $DATA_SERVICES
+      set +f
+      seed_db "$proj"
       docker compose -p "$proj" "${cf[@]}" up -d --build
+    else
+      # Default (initdb / no strategy): one-shot bring-up, image initdb seeds.
+      docker compose -p "$proj" "${cf[@]}" up -d --build
+    fi
   )
 
   # Ephemeral host port: the override maps "0:APP_PORT" so Docker picks a free one.
@@ -409,6 +429,13 @@ cmd_up() {
   echo ""
   echo "SANDBOX_URL=$url"
   echo "EVIDENCE_DIR=$evid"
+  # Surface the throwaway seeded creds so the planner can hand them to each
+  # delegate. Only the keys the recipe set are printed. These are sandbox-only,
+  # already committed in recipe.env → echoing them leaks nothing.
+  [ -n "$TEST_USER" ]       && echo "TEST_USER=$TEST_USER"
+  [ -n "$TEST_PASSWORD" ]   && echo "TEST_PASSWORD=$TEST_PASSWORD"
+  [ -n "$LOGIN_PATH" ]      && echo "LOGIN_PATH=$LOGIN_PATH"
+  [ -n "$POST_LOGIN_PATH" ] && echo "POST_LOGIN_PATH=$POST_LOGIN_PATH"
   echo ">> Ready. Drive it with agent-browser (reference/driving-the-app.md); 'down' when done."
 }
 
@@ -439,45 +466,48 @@ cmd_reset() {
   local proj wt run; proj=$(sed -n 1p "$runfile"); wt=$(sed -n 2p "$runfile"); run=$(sed -n 3p "$runfile")
   [ -n "$run" ] || run="${proj#bdvt-$(repo_slug)-}"
   [ -d "$wt" ] || die "recorded worktree missing ($wt) — run 'up' again"
-  local baseimg; baseimg=$(base_image)   # computed at repo root (correct slug/hash)
   local cf; mapfile -t cf < <(compose_files)
-  echo ">> Resetting sandbox data (fresh seeded DB; app restarts in place)..."
+  # Resolve the base image NOW, from the real repo (inside $wt the slug/hash drift).
+  # seed_db's `run --build` needs it as the app image build-arg for migrations/synthetic.
+  local baseimg; baseimg=$(base_image)
+  echo ">> Resetting sandbox data (fresh seeded DB; same SANDBOX_URL)..."
   (
     cd "$wt"
-    export BDVT_RUN="$run"
+    export BDVT_RUN="$run" BASE_IMAGE="$baseimg"
     if [ -n "$RESET_CMD" ]; then
       # ESCAPE HATCH: the recipe author owns the entire reseed lifecycle.
-      # $COMPOSE and $PROJ are provided. When set, MIGRATE_CMD/SEED_CMD are NOT
-      # auto-run here (RESET_CMD is expected to include them).
+      # $COMPOSE and $PROJ are provided; e.g. RESET_CMD='$COMPOSE --profile seed run --rm seed'
+      # When set, MIGRATE_CMD/SEED_CMD are NOT auto-run (RESET_CMD is expected to
+      # include whatever reseeding it needs).
       COMPOSE="docker compose -p $proj ${cf[*]}" PROJ="$proj" bash -c "$RESET_CMD"
     else
-      # Default lifecycle: recreate the data services + their anonymous volumes
-      # (fresh empty DB), then re-run the migrate + seed slots below. This
-      # replaces the old "the DB image's initdb re-seeds itself" assumption, which
-      # is false for apps that seed via migrations/commands (Rails, Django,
-      # FastAPI, Prisma …). --no-deps + --wait: recreate ONLY the data services
-      # and block until they are healthy before migrate runs. DATA_SERVICES is
-      # word-split (may be several services); `set -f` stops pathname expansion.
+      # Default lifecycle: drop the data services + their anonymous volumes (fresh
+      # empty DB; the image's initdb re-runs on recreate), then re-run the seed for
+      # migrations/synthetic/snapshot strategies (seed_db no-ops for initdb).
+      # --no-deps so compose does NOT touch the app container here — recreating it
+      # would reassign its ephemeral host port and invalidate the SANDBOX_URL
+      # already handed to the driver. --wait so the DB is healthy (initdb finished)
+      # before we (re)seed on top. DATA_SERVICES is intentionally word-split
+      # (multiple services); `set -f` keeps a name from being pathname-expanded.
       set -f
       # shellcheck disable=SC2086
       docker compose -p "$proj" "${cf[@]}" rm -v -sf $DATA_SERVICES
       # shellcheck disable=SC2086
       docker compose -p "$proj" "${cf[@]}" up -d --no-deps --wait $DATA_SERVICES
       set +f
+      seed_db "$proj"
     fi
   )
-  if [ -z "$RESET_CMD" ]; then
-    run_slot "Running MIGRATE_CMD" "$proj" "$wt" "$run" "$baseimg" "$MIGRATE_CMD"
-    run_slot "Running SEED_CMD"    "$proj" "$wt" "$run" "$baseimg" "$SEED_CMD"
-  fi
   # Restart the app IN PLACE so it drops any stale DB pool / prepared statements
   # bound to the destroyed DB. `restart` keeps the existing container, so its
   # ephemeral host port (and the SANDBOX_URL already handed to the driver) is
   # preserved — unlike `up --force-recreate`, which would reassign the port.
+  # Set RESET_RESTART_SERVICES="" in the recipe to skip (when the app's pool
+  # tolerates a dropped DB and reconnects lazily).
   if [ -n "$RESET_RESTART_SERVICES" ]; then
     set -f
     # shellcheck disable=SC2086
-    ( cd "$wt" && docker compose -p "$proj" "${cf[@]}" restart $RESET_RESTART_SERVICES ) || true
+    ( cd "$wt" && BDVT_RUN="$run" BASE_IMAGE="$baseimg" docker compose -p "$proj" "${cf[@]}" restart $RESET_RESTART_SERVICES ) || true
     set +f
   fi
   # Re-gate on health so the next mission never starts against a half-reset app.

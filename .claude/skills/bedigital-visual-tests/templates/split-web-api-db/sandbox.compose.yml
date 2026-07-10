@@ -6,7 +6,8 @@
 # VITE_* — these bake at BUILD time, so you can't reroute /api with a runtime env;
 # the proxy handles it instead of rebuilding the frontend).
 #
-# Boot order (sandbox.sh, with MIGRATE_CMD/SEED_CMD set):
+# Boot order (sandbox.sh, with SEED_STRATEGY != initdb; the seed runs
+# in-container via `compose run` on SEED_SERVICE=backend):
 #   postgres healthy -> MIGRATE_CMD -> SEED_CMD -> backend+frontend -> caddy.
 name: <app>-bdvt
 
@@ -44,22 +45,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-
-  migrate:
-    profiles: ["tools"]
-    build: { context: ./backend, dockerfile: Dockerfile }  # <-- backend image
-    command: [<your migrate command>]
-    environment: *backend-env
-    depends_on: { postgres: { condition: service_healthy } }
-    restart: "no"
-
-  seed:
-    profiles: ["tools"]
-    build: { context: ./backend, dockerfile: Dockerfile }
-    command: [<your seed command>]                         # MUST create a deterministic TEST USER
-    environment: *backend-env
-    depends_on: { postgres: { condition: service_healthy } }
-    restart: "no"
 
   backend:
     build: { context: ./backend, dockerfile: Dockerfile }
