@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bedigital-visual-tests — deterministic Docker mechanics for the sandbox.
+# esegui-test / prepara-test — deterministic Docker mechanics for the sandbox.
 #
 # Subcommands (run from the target repo root):
 #   status   is this repo onboarded and is the base current?
@@ -11,7 +11,7 @@
 #   nuke     also drop the base image / stamp (force a re-onboard)
 #
 # The recipe lives in the target repo under .bedigital-visual-tests/:
-#   recipe.env            (sourced below — see templates/recipe.env.example)
+#   recipe.env            (sourced below — schema: prepara-test/templates/recipe.env.example)
 #   sandbox.compose.yml   (the sandbox definition / sanitizing override)
 #   Dockerfile.base       (self-contained path only)
 #   Dockerfile.sandbox    (self-contained path only; FROM ${BASE_IMAGE})
@@ -29,7 +29,7 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 require_repo() {
   git rev-parse --show-toplevel >/dev/null 2>&1 || die "not inside a git repository"
-  [ -f "$RECIPE" ] || die "no recipe at $RECIPE — onboard this repo first (see reference/onboarding.md)"
+  [ -f "$RECIPE" ] || die "no recipe at $RECIPE — this repo is not onboarded. Run the prepara-test skill first."
 }
 
 load_recipe() {
@@ -54,7 +54,7 @@ load_recipe() {
   # (and RESET_CMD runs via `bash -c` on the host) — NOT sandboxed in Docker.
   # MIGRATE_CMD/SEED_CMD, by contrast, run IN-CONTAINER (`compose run`) against the
   # throwaway DB — the host is not their execution context. Only run this skill on
-  # repositories you trust. See SKILL.md / onboarding.md.
+  # repositories you trust. See SKILL.md / prepara-test's onboarding.md.
   # shellcheck disable=SC1090
   source "$RECIPE"
   : "${APP_SERVICE:?recipe missing APP_SERVICE}"

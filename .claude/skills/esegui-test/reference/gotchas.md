@@ -67,7 +67,7 @@ v5 dogfood.) Distinguish it from the recipe-side cookie/CORS issues below.
 
 ## v5 snapshot: real data must be MASKED, runtime-loaded, and never committed/baked
 `SEED_STRATEGY=snapshot` is the only sanctioned way to get real data into the sandbox,
-and only through `reference/snapshot.md`'s masking pipeline. The traps that make it a
+and only through the masking pipeline in the prepara-test skill's `reference/snapshot.md`. The traps that make it a
 leak if you get them wrong: (1) `SOURCE_DB_URL` is **runtime-injected**, never in
 `recipe.env`/compose — a committed real connection string is a credential leak; (2) PII
 is masked **in memory before any INSERT** — masking after load, or `keep`ing a PII

@@ -1,0 +1,6 @@
+# Shell scripts and Docker/YAML assets must stay LF — CRLF breaks the shebang
+# on Linux and inside containers.
+*.sh          text eol=lf
+Dockerfile*   text eol=lf
+*.yml         text eol=lf
+recipe.env*   text eol=lf

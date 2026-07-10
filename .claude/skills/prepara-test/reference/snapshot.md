@@ -57,7 +57,7 @@ Copy `templates/snapshot-and-mask.mjs` → the app's `scripts/`, and
 `templates/snapshot.config.example.json` → `.bedigital-visual-tests/snapshot.config.json`;
 fill in the real tables/columns. Add to `.gitignore` any `SNAPSHOT_DUMP` path.
 
-Run: `SOURCE_DB_URL='postgresql://readonly_user:pw@real-host/db' bash "$SKILL_DIR/scripts/sandbox.sh" up`.
+Run: `SOURCE_DB_URL='postgresql://readonly_user:pw@real-host/db' bash "$ESEGUI_DIR/scripts/sandbox.sh" up` (`ESEGUI_DIR` = the esegui-test sibling skill dir, which owns the scripts).
 Because `snapshot` is a non-`initdb` strategy, the two-phase `up` builds the schema
 (`MIGRATE_CMD`) and loads the masked slice (`SEED_CMD`) before the app boots; `reset`
 re-pulls a fresh masked slice between missions.
