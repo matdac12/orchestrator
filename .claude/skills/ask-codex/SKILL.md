@@ -66,9 +66,14 @@ must locate every finding without re-deriving it):
 3. A finding without a file+line+quote citation is invalid — omit it or mark
    it explicitly as UNVERIFIED SPECULATION.
 EOF
-codex exec -C "<repo dir>" --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
+codex exec -C "<repo dir>" -m gpt-5.6-sol -c model_reasoning_effort="<medium|high>" \
+  --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
   -o "$OUT" - < "$P"
 ```
+
+Pick `<medium|high>` per the **review presets** below. Keep `-m`/`-c` *before*
+`--dangerously-bypass-approvals-and-sandbox` so the literal flag stays intact and the
+permission allowlist still matches.
 
 - The output contract block is **not optional boilerplate** — include it verbatim in
   every review prompt. Proof-of-read detects the silent-read-failure mode; per-finding
@@ -99,6 +104,30 @@ the shell command, not prompt content — they don't themselves distinguish a re
 invocation from a write-capable one, which is fine only as long as this skill emits
 review-only prompts. A future edit-delegating skill must re-review whether the
 allowlist should cover it.
+
+## Review presets: model + reasoning effort
+
+Two knobs, both verified on this machine (2026-07-10):
+
+- **Model** — `-m <slug>`. Your ChatGPT account is entitled to the GPT-5.6 family
+  (`gpt-5.6-sol` flagship, `gpt-5.6-terra` mid, `gpt-5.6-luna` cheap/fast) plus the older
+  `gpt-5.5`. A slug the account can't use fails fast with a 400 ("… not supported when
+  using Codex with a ChatGPT account") — so a typo can't silently downgrade you.
+- **Reasoning effort** — `-c model_reasoning_effort="<value>"`, one of
+  `none | minimal | low | medium | high | xhigh` (CLI ceiling is `xhigh`; the `Max`/`Ultra`
+  levels in OpenAI's docs are interactive-picker only and don't apply to `codex exec`). A
+  bad value fails fast with a 400 listing the enum. Higher effort visibly costs more tokens.
+
+**For reviews, always use `gpt-5.6-sol`** — it's the flagship built for advanced coding and
+security work, i.e. exactly adversarial review. Choose the effort dial by task weight:
+
+| Preset | `model_reasoning_effort` | Use when |
+|--------|--------------------------|----------|
+| **Standard** | `medium` | Routine diff, small/localized surface, "sanity-check this", straightforward logic. |
+| **Deep** | `high` | Security-sensitive code, subtle concurrency/state/logic, large or cross-cutting diff, or the human explicitly asked for a hard adversarial pass. |
+
+Default to **Standard**; escalate to **Deep** when any Deep trigger applies. State which
+preset you used when you report findings, so the human knows how hard Codex looked.
 
 ## Use the answer critically
 

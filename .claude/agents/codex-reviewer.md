@@ -20,6 +20,15 @@ given.
 2. Build the review prompt from the task you were given: goal, exact repo dir + paths
    (or the diff/branch), the specific question, plus the skill's output-contract block
    verbatim. Always include "Review ONLY — do not edit any files."
+2a. **Choose a review preset** (see the skill's "Review presets" section). Model is
+   always `-m gpt-5.6-sol`. Pick the effort dial from the task's weight:
+   - **Standard** (`model_reasoning_effort="medium"`) — routine diff, small/localized
+     surface, straightforward logic. This is the default.
+   - **Deep** (`model_reasoning_effort="high"`) — security-sensitive code, subtle
+     concurrency/state/logic, a large or cross-cutting diff, or the caller explicitly
+     asked for a hard adversarial pass.
+   If the caller named a preset or effort explicitly, obey it; otherwise decide yourself
+   and default to Standard unless a Deep trigger clearly applies.
 3. Run it. Long runs: background the Bash call and wait; don't kill a quiet run early.
 4. **Validate the proof-of-read** before trusting anything: check the reported line
    counts / last-line quotes against the real files (`wc -l`, `tail`) and grep the raw
@@ -34,6 +43,7 @@ given.
 Return exactly this structure, nothing more:
 
 1. **STATUS:** `ok` | `codex-unavailable: <why>` | `proof-of-read-failed` | `denied`
+   — append the preset used, e.g. `ok (sol/deep)` or `ok (sol/standard)`.
 2. **PROOF OF READ:** verified/not, one line (e.g. "line counts and quotes match").
 3. **FINDINGS:** Codex's findings, each with its file:line + verbatim quote citation,
    verbatim or minimally tightened — never strip the citations, they are the whole
