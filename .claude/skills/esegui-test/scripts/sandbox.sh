@@ -179,7 +179,11 @@ app_hostport() {  # args: proj wt
 wait_for_health() {  # args: url
   local url="$1" _
   for _ in $(seq 1 60); do
-    curl -fsS -o /dev/null "${url}${HEALTH_PATH}" && return 0
+    # Discard the body via a SHELL redirect, not curl's own `-o /dev/null`:
+    # on Windows/MSYS curl.exe cannot open `/dev/null` and fails with exit 23
+    # (write error) even on a 200, so the gate never passes. `>/dev/null` is the
+    # bash builtin redirect, which works on every platform.
+    curl -fsS "${url}${HEALTH_PATH}" >/dev/null 2>&1 && return 0
     sleep 2
   done
   return 1

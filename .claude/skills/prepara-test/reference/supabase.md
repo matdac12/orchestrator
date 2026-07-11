@@ -85,6 +85,23 @@ against the live gateway, then starts the app. `reset` recreates the stack
 with the same confirmed user and no leftover state. **Zero `sandbox.sh` changes** —
 Phase 2 rides entirely on the Phase-1 seed hook + two-phase up + reset.
 
+## 3b. Real schema + synthetic data (when the repo has no schema baseline)
+
+Many apps carry only **incremental** migrations (they `ALTER`/patch an existing DB) — the real `CREATE TABLE`s live in the cloud project, not the repo. An empty local Postgres + those migrations then fails. Path that works for "schema + fake data":
+
+1. **Dump the schema from prod, once** (safe to commit — no rows, no secrets):
+   `supabase db dump --db-url "<conn>" --schema public -f .bedigital-visual-tests/schema.sql`.
+   Get `<conn>` right: the direct `db.<ref>.supabase.co` host is often **IPv6-only** and unresolvable from the dump container — use the **session pooler** `postgresql://postgres.<ref>:<pw>@aws-<N>-<region>.pooler.supabase.com:5432/postgres`. The region/`aws-N` prefix must match the project (probe: a wrong one fails fast with `Tenant or user not found`). Needs the DB password (not the service-role JWT) — have the user run it, or pass it once for a local-only dump.
+2. **Author `seed.sql`** = copy the non-PII reference rows verbatim from prod (lookups, template cycles, staff — preserve the real UUIDs so FKs resolve; anonymize any employee names) + synthesize the PII/volume tables (patients, orders, phases) referencing the copied rows **by natural key** (`(SELECT id FROM forniture WHERE codice_esterno=…)`), so you never hardcode UUIDs. Build child rows with `INSERT … SELECT` from the copied templates. Wrap the load in `SET session_replication_role = replica; … SET session_replication_role = DEFAULT;` to defer FK/triggers during bulk insert. If the app has a global data cutoff/filter setting, force it off in the seed so the synthetic rows are visible.
+3. **Apply both via the `db` service's initdb mounts** — NOT a `MIGRATE_CMD` (the app image has no psql). Mount into `/docker-entrypoint-initdb.d/init-scripts/`, numbered to run **after** the image's baked scripts (`…3-post-setup`) that create `anon`/`authenticated`/`service_role`:
+   ```
+   - ./.bedigital-visual-tests/schema.sql:/docker-entrypoint-initdb.d/init-scripts/50-schema.sql:ro
+   - ./.bedigital-visual-tests/seed.sql:/docker-entrypoint-initdb.d/init-scripts/55-seed.sql:ro
+   ```
+   The image's `migrate.sh` globs `init-scripts/*.sql` sorted, with `ON_ERROR_STOP=1` (a real SQL error aborts init and the container exits 1 — fail-loud). The base postgres entrypoint prints `ignoring …/init-scripts` — that's expected; `migrate.sh` is what runs them. `reset` recreates the ephemeral `db`, so schema+seed reapply every mission. A defensive `45-ensure-roles.sql` (`CREATE ROLE … IF NOT EXISTS` via a `DO` block) makes the schema's `GRANT`s robust across image variants. `SEED_STRATEGY` stays `synthetic` with `SEED_CMD` doing only the confirmed-user admin-API seed.
+
+**Read-path note:** many server components read via a **service-role** client (`createServiceClient`, bypasses RLS), not the SSR cookie client — so the synthetic rows just need to *exist*; you don't need RLS-visible data. But the confirmed test user is still required to pass the middleware auth gate and reach those pages.
+
 ## 4. The NEXT_PUBLIC / ephemeral-port trap → do auth SERVER-SIDE
 
 This is the crux. `NEXT_PUBLIC_SUPABASE_URL` is **inlined at build time** into both
@@ -110,6 +127,25 @@ If an app does client-side Supabase auth (browser calls Supabase directly), you'
 have to publish the gateway on a fixed host port and satisfy CORS for the app's
 ephemeral origin — brittle. Prefer steering such apps to server-side auth, or use
 the fallback in §6.
+
+## 4b. `next build` prerenders DB-backed pages → run the DEV server
+
+A production `next build` **prerenders** pages at build time. Any `(app)` page that
+fetches Supabase in a static/cached way (commonly via the **service-role** client,
+which reads no cookies so Next treats it as static) is evaluated during
+`docker build` — where the sandbox gateway is **not on the network** and the
+service-role key is a **runtime-only** secret, not a build ARG. The build then dies
+(`createServiceClient: … mancanti`, or a fetch/connect error, `Export encountered
+an error on /<page>`). On the cloud it builds only because the real DB is reachable
+at build.
+
+The robust sandbox fix: **run the dev server** — `Dockerfile.sandbox` does
+`COPY <app>/ ./` then `CMD ["npm","run","dev","-- -H 0.0.0.0 -p <port>"]`, no
+`next build`. `next dev` defers every fetch to request time, when the full stack is
+up, so no build-time DB and no build-ARG secret juggling. Trade-offs: the first hit
+to each route compiles (health-gate on a light route like `/login` and allow retries;
+`wait_for_health` already polls). Keep the base image's `npm ci` (dev deps included).
+The alternative — forcing those routes dynamic — means editing app code; prefer dev.
 
 ## 5. Health gate
 

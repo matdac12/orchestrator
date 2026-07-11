@@ -17,6 +17,7 @@ The one question that decides everything: **what single URL does the browser hit
 
 Then fill in the mechanics, none framework-specific:
 - **Lockfile picks the package manager** (for `LOCKFILES` + the base build) — never guess. `pnpm-lock.yaml`→pnpm, `package-lock.json`→npm, `yarn.lock`→yarn, `bun.lockb`→bun; `uv.lock`→uv, `poetry.lock`→poetry; else the dependency **manifest** (`pyproject.toml`, `go.mod`, `Cargo.toml`, bare `package.json`) — hash whatever declares deps.
+- **App in a subdirectory (monorepo):** `sandbox.sh` runs from the **git root** and `.bedigital-visual-tests/` lives there — NOT next to the app. The build context is the git root, so the Dockerfiles reach into the subdir (`COPY web/app/package.json …`, `COPY web/app/ ./`), `LOCKFILES` is root-relative (`web/app/package-lock.json`), and you add a whitelist `.dockerignore` at the root (`*` then `!web/ !.bedigital-visual-tests/`, then re-exclude `node_modules`/build output/dev assets) so the whole repo isn't shipped as build context.
 - **Runtime/version** from `engines`/`packageManager`, `.nvmrc`, `.python-version`, `go.mod`.
 - **Build & start** from `package.json` scripts / framework defaults (Next→3000, Vite preview→4173, Express→3000/4000/8000).
 - **Data + env contract:** ORM/migrations (`prisma/`, `alembic`, `knexfile`, `drizzle.config`) and their migrate+seed commands → `SEED_STRATEGY` + `MIGRATE_CMD`/`SEED_CMD` (plain commands, run in-container via `compose run` on `SEED_SERVICE`, default the app image); `.env.example` lists required vars; note the connection-string var (usually `DATABASE_URL`).
@@ -37,7 +38,8 @@ Then fill in the mechanics, none framework-specific:
   .bedigital-visual-tests/.last-run
   .bedigital-visual-tests/.runs/
   ```
-- **Commit `recipe.env` + `sandbox.compose.yml` (+ Dockerfiles).** The recipe may be iterated uncommitted (`up` copies it into the HEAD worktree), but the app code it builds is always committed HEAD.
+- **Commit `recipe.env` + `sandbox.compose.yml` (+ Dockerfiles) — AND every other file the compose bind-mounts.** `up`/`onboard` build from a **detached HEAD worktree** and overlay ONLY `recipe.env`, `sandbox.compose.yml`, `Dockerfile.*`, and `.dockerignore` uncommitted (so those iterate freely). Every other mount source — `schema.sql`, `seed.sql`, `supabase/*.sql`, `gateway.conf`, `scripts/seed-*.mjs` — must exist at **committed HEAD**, or Docker silently creates an **empty directory** at the mount target and the service dies (`could not read from input file: Is a directory`, `db` exits 1). Practical loop: iterate the overlaid files uncommitted while smoke-testing, then commit the rest *before the real* `up`.
+- **Windows / CRLF:** commit a `.bedigital-visual-tests/.gitattributes` with `* text eol=lf`. The `.sql` init scripts and shell/node scripts are read inside Linux containers; `autocrlf` on checkout injects `\r` that breaks psql `\set … \`echo "$X"\`` backtick meta-commands and script shebangs.
 
 ## 3. Health check must be real
 
