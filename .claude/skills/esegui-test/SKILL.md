@@ -26,6 +26,12 @@ On each run the skill **reads what changed**, decides a few **targeted adversari
 - `/esegui-test "check X and that Y still works"` → your words seed the missions
 - `/esegui-test --auto` → plan + run with no approval gate, report at the end (for hands-off callers)
 
+**Where to run it from:** the checkout whose `HEAD` is the work to test — `sandbox.sh up`
+builds the `HEAD` of the repo at your cwd. For an orchestrator worker agent that's your
+own worktree (linked worktrees are fully supported); if you're not already there, enter
+your worktree *before* the preflight. Do NOT create a new worktree just for testing —
+isolation is already `sandbox.sh`'s job (it builds from its own detached-HEAD worktree).
+
 **When NOT to use:**
 - The repo has no `.bedigital-visual-tests/recipe.env`, or the environment is broken → that's `prepara-test`, not this
 - Pure unit/logic testing with no runtime UI → just run the test suite
@@ -100,6 +106,7 @@ The autonomous review flow. Full playbook in **`reference/reviewing.md`**; in sh
 | Re-onboarding / rebuilding deps every run | Check `status` first; reuse the base image. Rebuild only when status says STALE. |
 | Assuming the app is on port 3000 | Read `SANDBOX_URL` from `up` — the host port is ephemeral per run. |
 | Testing the working tree instead of committed code | `up` builds from a detached `HEAD` worktree by design. Commit first. |
+| Running from the wrong checkout (e.g. main instead of your own worktree) | You'd test the wrong `HEAD`. Run from the checkout whose `HEAD` is the work under test; entering your existing worktree first is correct. Creating a *new* worktree for the test is not — `sandbox.sh` already isolates. |
 | Delegate can't log in | Pass the `TEST_USER`/`TEST_PASSWORD`/`LOGIN_PATH` keys `up` echoed. If the seeded user is rejected, that's a recipe bug → `/prepara-test`. |
 | App never goes healthy on `up` | Almost always missing secrets/env — an environment problem. Read the container logs, then fix it via `/prepara-test` (see its gotchas pointer). |
 | Driving a browser *inside* a container to `http://<service>:<port>` | Chromium force-upgrades single-label hosts to HTTPS → `ERR_SSL_PROTOCOL_ERROR`. Use a dotted alias, or (default) drive from the host against the published port. |
