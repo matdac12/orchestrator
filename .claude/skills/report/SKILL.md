@@ -7,7 +7,7 @@ user-invocable: true
 # Report
 
 Report your progress to the orchestrator. You are a worker agent; pass your worker
-letter as `--agent <AGENT>` (the letter from your `/work` loop). The project resolves
+letter as `--agent <AGENT>` (the letter you were invoked with as `/work <AGENT>`). The project resolves
 from your linked directory — no env vars needed. Resolve `<path>` = the orchestrator
 repo path (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project).
 

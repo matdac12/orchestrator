@@ -13,7 +13,7 @@ and 4 are mandatory: the job ends at a committed branch plus a `done` report.
 Resolve `<path>` = the orchestrator repo path
 (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project; you run
 inside the target project but `orch.py` lives in the orchestrator repo). Pass your
-worker letter as `--agent <AGENT>` (the letter from your `/work` loop); the project
+worker letter as `--agent <AGENT>` (the letter you were invoked with as `/work <AGENT>`); the project
 resolves from your linked directory — no env vars needed. (If a command reports `can't
 infer the project`, run `python <path>/orch.py link <project>` once in this checkout.)
 

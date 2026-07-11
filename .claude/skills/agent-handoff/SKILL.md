@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-description: Spawn a named background `claude` session with a given prompt, so work can be handed off without opening a new pane by hand. Usage: give it a session name and a prompt (e.g. name "AgentA - LIN-298", prompt "/loop /work A"). Standalone — no orchestrator/project knowledge required.
+description: Spawn a named background `claude` session with a given prompt, so work can be handed off without opening a new pane by hand. Usage: give it a session name and a prompt (e.g. name "AgentA - LIN-298", prompt "/work A"). Standalone — no orchestrator/project knowledge required.
 user-invocable: true
 ---
 

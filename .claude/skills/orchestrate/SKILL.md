@@ -1,13 +1,15 @@
 ---
 name: orchestrate
-description: Lean orchestrator loop for the multi-agent system. Run as `/loop /orchestrate`. Autonomously merges finished agent branches and updates Linear; collaborates with the human to queue new kickoffs; pings the human on blockers or when direction is needed.
+description: Use when the human tells you an agent finished a task and it needs integrating. Lean, manually-invoked orchestrator for the multi-agent system. Merges the named agent's finished branch and updates Linear, collaborates with the human to queue new kickoffs, and pings the human on blockers or when direction is needed. Runs one pass per invocation, then stops.
 ---
 
 # Orchestrate
 
 You are the **orchestrator**. You never author specs/plans and never write feature
-code. You own integration and reconcile Linear with the orch DB. You run inside
-`/loop /orchestrate`, self-paced.
+code. You own integration and reconcile Linear with the orch DB. You run **one pass**
+each time the human invokes you and names what happened (e.g. "agent A finished") —
+do that one pass, report, and stop. You are not a loop and you never reschedule
+yourself; the human re-invokes you when there's more to do.
 
 Resolve `<path>` = **the orchestrator repo path**, which is
 `C:/Users/MattiaDaCampo/Documents/orchestrator` (NOT your current project — you run
@@ -29,13 +31,17 @@ relaunch. `ORCH_PROJECT` still works as an override.
    rebinds the project's shared root to wherever it's run; the CLI itself now refuses
    this, but you should only ever be running from the main checkout anyway (see step 1).
 
-## Autonomous half (every cycle, no human needed)
+## When the human tells you an agent finished
 
-1. `orch status --json` (project auto-resolves from the linked directory). Read the top `waiting` list first:
-   any agent there is blocked ON YOU — surface it immediately. Also scan recent
-   events for `kind=warning` (a worker skipped/downgraded a step, e.g. Codex review):
-   do not merge that branch until you have accounted for the warning.
-2. For each task with status `done`:
+The human names the agent/task that just finished (e.g. "agent A is done"). Act on
+**that one task only** — merge it, report, stop. Don't sweep every `done` task.
+
+1. `orch status --json` (project auto-resolves from the linked directory). Locate the
+   task the human named and confirm its status is `done`. Read the top `waiting` list:
+   if that agent (or any agent) is blocked ON YOU, surface it immediately. Also check
+   recent events for `kind=warning` on this task (a worker skipped/downgraded a step,
+   e.g. Codex review): do not merge the branch until you have accounted for the warning.
+2. For the named task (status `done`):
    - **Note the rollback point first:** `git rev-parse main` — you need this to restore
      `main` if the merge looks clean but tests fail. Never leave `main` red; only ever
      advance it on a verified-green result.
@@ -76,11 +82,13 @@ relaunch. `ORCH_PROJECT` still works as an override.
      `orch task update --task <id> --status blocked`,
      `orch post --agent orchestrator --task <id> --kind blocker --msg "<why>"`,
      `orch notify --msg "Merge blocked on task <id>: <why>" --title "Orchestrator needs input"`.
-3. If nothing is actionable, end the turn; the loop reschedules. To avoid empty
-   hand-polling you may instead block on `orch wait --timeout <sec>`, which returns as
-   soon as any event/task changes (or times out).
+3. Report the outcome to the human (merged, or blocked and why) and stop. Don't poll
+   or wait for the next thing — the human re-invokes you when another agent finishes.
 
-## Collaborative half (when the human is in the window)
+## Collaborating with the human (queuing new work)
+
+The human is always driving — when they want to plan next steps rather than integrate
+a finished branch, do this instead of (or after) a merge pass.
 
 - Reconcile Linear ↔ DB. Propose the next logical step. Identify 2-3 pieces that can
   run in parallel WITHOUT touching the same files.
@@ -109,7 +117,7 @@ never spawn one unasked (they may be driving panes themselves this cycle).
 2. Invoke `agent-handoff` with:
    - `name`: `"Agent<letter> - <issue>"` (or the branch name if there's no linked
      issue)
-   - `prompt`: `"/loop /work <letter>"`
+   - `prompt`: `"/work <letter>"`
 3. `agent-handoff` spawns it and hands you back `{name, pid, sessionId, cwd, status}`.
    You don't need to pass — or record — a branch or task id through it: the spawned
    worker looks up its own task via `orch next --agent <letter>`, which already has

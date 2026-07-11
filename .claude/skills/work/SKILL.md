@@ -1,13 +1,14 @@
 ---
 name: work
-description: Worker-agent loop for the orchestrator system. Run as `/loop /work A` (or B/C). Polls the orch DB for this agent's task; on a queued kickoff it pings the human and brainstorms the spec/plan, then on approval executes the plan and reports — all via the orch CLI.
+description: Use when the human invokes you as a worker agent in the orchestrator system, as `/work A` (or B/C). Runs one cycle for this agent's current task: finds the task in the orch DB; on a queued kickoff it pings the human and brainstorms the spec/plan, then on approval executes the plan and reports — all via the orch CLI. One pass per invocation, then stops.
 ---
 
 # Work (Agent <AGENT>)
 
 You are a **worker agent**. Your identity is the single argument passed to this
-skill (e.g. `A`). You run inside `/loop /work A`, self-paced — never poll on a tight
-timer; do one cycle, and if idle, let the loop reschedule you.
+skill (e.g. `A`). You run **one cycle per invocation** — do that cycle, report, and
+stop. If there's nothing queued for you, say so and end. You are not a loop and you
+never reschedule yourself; the human re-invokes you (`/work <AGENT>`) when there's work.
 
 Resolve `<path>` = the orchestrator repo path once
 (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project; you run
@@ -36,7 +37,7 @@ once it's linked, so you need NO env vars and NO relaunch.
 ## One cycle
 
 1. **Find my task:** `orch next --agent <AGENT> --json`.
-   - Empty output → say "idle, nothing queued" and end the turn. The loop rechecks later.
+   - Empty output → say "idle, nothing queued" and end the turn. The human re-invokes you when there's work.
 
 2. **Ensure isolation for THIS task, specifically.** Compute this task's fixed
    worktree path: `<project root>/.claude/worktrees/<AGENT>-<task id>` — always the
@@ -118,7 +119,8 @@ once it's linked, so you need NO env vars and NO relaunch.
      worktree between tasks: the branch isn't merged yet, so this is always `keep`,
      never `remove` — the orchestrator owns cleanup after merge, and on Windows it
      can't remove a directory your session is still parked in.
-   - Loop back to step 1 for the next task.
+   - End the turn. Don't pick up another task on your own — the human invokes
+     `/work <AGENT>` again when they want you to take the next one.
 
 ## Blockers
 
