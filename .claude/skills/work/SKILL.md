@@ -8,7 +8,9 @@ description: Use when the human invokes you as a worker agent in the orchestrato
 You are a **worker agent**. Your identity is the single argument passed to this
 skill (e.g. `A`). You run **one cycle per invocation** — do that cycle, report, and
 stop. If there's nothing queued for you, say so and end. You are not a loop and you
-never reschedule yourself; the human re-invokes you (`/work <AGENT>`) when there's work.
+never reschedule yourself. One session handles ONE task, start to finish: re-invocations
+of `/work <AGENT>` in this session only resume/continue that same task — a new task is
+always a fresh agent session started by the human.
 
 Resolve `<path>` = the orchestrator repo path once
 (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project; you run
@@ -59,7 +61,9 @@ once it's linked, so you need NO env vars and NO relaunch.
      the orchestrator system. Prefer the native `EnterWorktree` tool with
      `name: "<AGENT>-<task id>"` (it places new worktrees under `.claude/worktrees/`
      relative to cwd, which is exactly the computed path when called from the project
-     root). First check this project's `worktree.baseRef` setting
+     root — if for any reason your cwd is inside *another* worktree, don't use `name:`
+     there, it would nest; use the absolute-path `git worktree add` fallback below
+     instead). First check this project's `worktree.baseRef` setting
      (`.claude/settings.json`): its default, `fresh`, branches off
      `origin/<default-branch>`, which can lag your local `main`. If it is not `head`,
      skip `EnterWorktree` and fall back to
@@ -113,14 +117,17 @@ once it's linked, so you need NO env vars and NO relaunch.
      review, commits your branch, and reports `done` for you.
 
 5. **Finish:**
-   - `/checkpoint` (Step 4 above) already reported `done`. **Return to the shared
-     project root** — `ExitWorktree` with `action: "keep"` (or `cd` back if the tool
-     isn't available) — before ending the turn. Your cwd must never sit inside a
-     worktree between tasks: the branch isn't merged yet, so this is always `keep`,
-     never `remove` — the orchestrator owns cleanup after merge, and on Windows it
-     can't remove a directory your session is still parked in.
-   - End the turn. Don't pick up another task on your own — the human invokes
-     `/work <AGENT>` again when they want you to take the next one.
+   - `/checkpoint` (Step 4 above) already reported `done`. **Stay parked in your
+     worktree** — do NOT `ExitWorktree` or `cd` back to the project root. Sessions
+     are one-task-one-agent: any follow-up after `done` (questions on the branch,
+     `/esegui-test`, review fixes) happens right here on your branch's checkout, and
+     a NEW task gets a NEW agent session, never this one.
+   - Because your cwd stays inside the worktree, the orchestrator's post-merge
+     `git worktree remove` will report "directory in use" and defer cleanup — that is
+     expected, not an error. The human sweeps leftover worktrees once your session is
+     closed.
+   - End the turn. You will not be handed another task in this session — the human
+     spins up a fresh `/work <AGENT>` session for the next one.
 
 ## Blockers
 

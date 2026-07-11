@@ -67,12 +67,14 @@ The human names the agent/task that just finished (e.g. "agent A is done"). Act 
        has uncommitted changes, left in place — investigate before deleting"`. Do not
        force-delete, and do not delete the branch either — it's still checked out
        there.
-     - Fails because the directory is in use (the worker's session is likely still
-       parked there — common on Windows, where a live cwd can't be deleted) →
-       `orch post --agent orchestrator --task <id> --kind note --msg "<worktree>
-       cleanup deferred, directory in use"`. Leave it — no retry loop. The human
-       sweeps leftover `.claude/worktrees/*` directories by hand once the relevant
-       session is closed, then `git worktree prune` reconciles git's metadata.
+     - Fails because the directory is in use → **this is the NORMAL outcome, not an
+       anomaly**: workers stay parked in their worktree after `done` by design (one
+       session per task; follow-ups happen there), and on Windows a live cwd can't be
+       deleted. `orch post --agent orchestrator --task <id> --kind note --msg
+       "<worktree> cleanup deferred, directory in use"`. Leave it — no retry loop.
+       The human sweeps leftover `.claude/worktrees/*` directories by hand once the
+       relevant session is closed, then `git worktree prune` reconciles git's
+       metadata.
    - **Either way, this never blocks the task's `merged` status** — cleanup is disk
      hygiene, not correctness; the merge and tests already succeeded.
    - Tests fail after a clean/resolved merge → **restore `main`:**
