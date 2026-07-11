@@ -119,15 +119,18 @@ Two knobs, both verified on this machine (2026-07-10):
   bad value fails fast with a 400 listing the enum. Higher effort visibly costs more tokens.
 
 **For reviews, always use `gpt-5.6-sol`** — it's the flagship built for advanced coding and
-security work, i.e. exactly adversarial review. Choose the effort dial by task weight:
+security work, i.e. exactly adversarial review. (Terra/Luna are entitlement facts, not
+review options: sol at `medium` is more token-efficient and reviews better.)
 
 | Preset | `model_reasoning_effort` | Use when |
 |--------|--------------------------|----------|
-| **Standard** | `medium` | Routine diff, small/localized surface, "sanity-check this", straightforward logic. |
-| **Deep** | `high` | Security-sensitive code, subtle concurrency/state/logic, large or cross-cutting diff, or the human explicitly asked for a hard adversarial pass. |
+| **Standard** | `medium` | Almost every review — this is the correct choice ~all the time. Routine *and* large diffs, security passes, refactors, checkpoint reviews, "sanity-check this". When in doubt, medium. |
+| **Deep** | `high` | Extremely hard cases only: (a) the human explicitly asked for a deep/hard adversarial pass, or (b) the target is a suspected subtle bug — races, corrupted state, unreproducible failures — where a medium pass or your own analysis already came up empty. |
 
-Default to **Standard**; escalate to **Deep** when any Deep trigger applies. State which
-preset you used when you report findings, so the human knows how hard Codex looked.
+**`high` visibly costs several× the time and tokens of `medium`** — that cost must be
+justified before you pick it. "Security-sensitive" or "big diff" alone does NOT justify
+Deep; those are Standard. Deep is an escalation, not a classification. State which preset
+you used when you report findings, so the human knows how hard Codex looked.
 
 ## Use the answer critically
 
