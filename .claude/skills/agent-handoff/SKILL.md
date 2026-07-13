@@ -23,8 +23,19 @@ Given a `name` and a `prompt`:
 2. **Spawn it:**
 
    ```
-   claude --bg --name "<name>" "<prompt>"
+   MSYS_NO_PATHCONV=1 claude --bg --permission-mode auto --name "<name>" "<prompt>"
    ```
+
+   Always pass `--permission-mode auto` so the spawned session starts in auto
+   mode even if a project-level setting says otherwise.
+
+   Always prefix with `MSYS_NO_PATHCONV=1` when running this through Git Bash
+   (the Bash tool on Windows). Without it, Git Bash's automatic path conversion
+   treats any prompt starting with `/` (e.g. a slash-command prompt like
+   `/work A`) as a POSIX path and rewrites it into a Windows path rooted at the
+   Git install dir — e.g. `/work A` silently becomes
+   `C:/Program Files/Git/work A`, corrupting the prompt the spawned session
+   receives.
 
 3. **Confirm it started.** Run `claude agents --json` again, find the entry whose
    `name` matches, and read its `pid`, `sessionId`, `cwd`, `status`.

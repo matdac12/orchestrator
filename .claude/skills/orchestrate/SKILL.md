@@ -95,12 +95,17 @@ a finished branch, do this instead of (or after) a merge pass.
 - Reconcile Linear ↔ DB. Propose the next logical step. Identify 2-3 pieces that can
   run in parallel WITHOUT touching the same files.
 - On the human's confirmation, create each kickoff (lean — context only, no plan).
+  **`--title` is REQUIRED on `orch task add`** — a short human-readable name for the
+  task (e.g. `"Login form"`). `orch task add` errors out without it, so never omit it
+  from the command. **`--agent` and `--title` are the only two required flags;**
+  everything else (`--branch`, `--issue`, `--context`, `--status`) is optional but
+  conventionally set as below.
   **Kickoff convention (this is what kept 3 parallel agents from colliding):** in
   every kickoff pre-assign the `--branch` (and the timestamp-migration name if the
   task adds one), and state explicit file boundaries in the context — name the files
   this agent owns AND the files it must NOT touch because another agent owns them
   ("do NOT touch X, agent Y owns it"). Example:
-  `orch task add --agent A --status queued --branch feat/a-login --context "<decision + why it's next>. Owns: src/auth/*. Do NOT touch src/ui/nav.tsx (agent B)." --issue LIN-123`.
+  `orch task add --agent A --title "Login form" --status queued --branch feat/a-login --context "<decision + why it's next>. Owns: src/auth/*. Do NOT touch src/ui/nav.tsx (agent B)." --issue LIN-123`.
 - The human may pre-queue an agent's known-next task the same way.
 - If agents are idle and nothing is queued:
   `orch notify --msg "Agents idle, nothing queued — what's next?" --title "Orchestrator needs input"`
