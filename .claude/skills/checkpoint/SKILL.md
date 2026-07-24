@@ -24,16 +24,31 @@ instead of discovering it in your report:
 
 `python <path>/orch.py post --agent <AGENT> --kind warning --msg "<step> skipped: <why>"`
 
-## Step 1 — Code Review
+## Step 1 — Self-Review (quality, then correctness)
 
-Run `/code-review` on all changed code at an honestly chosen effort level:
-- `/code-review low` — trivial change (typo, one-line tweak, mechanical rename)
-- `/code-review` (default) — normal feature work or a single-area refactor
-- `/code-review high` — risky or large change: new module, cross-cutting refactor,
-  migration, anything touching money or production data
+**You cannot run `/code-review` here.** Since Claude Code v2.1.215 it is flagged
+`disable-model-invocation`: when a worker agent emits `/code-review` it is treated as
+plain text, not dispatched — the command only fires when a human types it (or via the
+headless SDK/CLI, which you are not). So do this two-part, model-invocable review
+instead, **in this order**:
 
-If unsure between two levels, go higher. Apply any fixes it makes; if it changed code,
-note what changed.
+**1a — Quality pass.** Invoke the `simplify` skill on the changed code (reuse,
+simplification, efficiency, and altitude cleanups) and apply its fixes. Quality only —
+it does NOT hunt for bugs; that's 1b.
+
+**1b — Correctness review.** Invoke `superpowers:requesting-code-review`: it dispatches
+a fresh-eyes `code-reviewer` subagent over your branch's diff
+(`BASE_SHA` = `origin/<default-branch>` or the branch point, `HEAD_SHA` = `HEAD`),
+given the plan/requirements as context. Scale the reviewer's attention to the change's
+risk — state it in the DESCRIPTION:
+- trivial change (typo, one-line tweak, mechanical rename) → a light glance
+- normal feature work or a single-area refactor → a normal read
+- risky or large change (new module, cross-cutting refactor, migration, anything
+  touching money or production data) → a careful, deep read; if unsure, ask for more.
+
+Do 1a **before** 1b so the reviewer sees the final shape, not code that's about to be
+restructured. Fix Critical and Important findings; note Minor ones. Push back (with
+technical reasoning) if the reviewer is wrong. Note what changed.
 
 ## Step 2 — Codex Review (optional)
 
@@ -54,7 +69,8 @@ framing if you want the design questioned.
 3. Post every finding you disagree with, are unsure about, or deliberately did not
    apply as a warning event (`codex finding not applied: <file:line> <why>`), so the
    orchestrator sees it before merging.
-4. Re-run `/code-review` if code was modified.
+4. If Codex's fixes changed non-trivial logic, re-run the Step 1b review
+   (`superpowers:requesting-code-review`) on the updated diff.
 
 If the `codex` CLI is not installed, the token expired mid-review, or the user
 says "skip codex," post the warning event from the header (`<step> skipped: <why>`)
