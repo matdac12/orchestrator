@@ -102,7 +102,7 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 | `link <name>` | bind the current directory to a project, so commands run here (and in worktrees under it) infer it automatically — no `--project`/env needed |
 | `task add` | create a task (`--agent --title [--context --status --issue --branch --worktree]`); default status `queued` |
 | `task update` (alias `task amend`) | amend a live task (`--task <id> [--status --branch --worktree --issue --plan --context]`) |
-| `deps` | fast-sync `node_modules` into the current worktree: copies from the linked project root when `package-lock.json` matches (no network, no reinstall — a fully independent copy, not a hardlink), else runs `npm ci`; no-op if not an npm project or `node_modules` is already present |
+| `deps` | fast-sync `node_modules` into the current worktree, for **every** npm project in the tree (root, `app/`, one per workspace — anywhere a `package-lock.json` lives outside `node_modules`): copies from the matching directory of the linked project root when the lockfile matches (no network, no reinstall — a fully independent copy, not a hardlink), else runs `npm ci` there; no-op if not an npm project or that `node_modules` is already present |
 | `next --agent A [--json]` | the agent's single active task, or empty |
 | `claim --agent A [--json]` | atomically take the agent's oldest `queued` task (→ `discussing`) |
 | `report --status S [--msg --agent --branch]` | worker shortcut: post `executing\|done\|blocked\|note`; agent from `ORCH_AGENT`; `done` auto-detects branch (never records `main`/`master`); `blocked` pings you |
