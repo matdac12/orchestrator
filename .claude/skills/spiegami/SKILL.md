@@ -18,9 +18,8 @@ invented case.
 
 ## When to use
 
-**The human starts this skill, never you.** It runs only when they type `/spiegami` or ask
-for it in words. Do not offer it, do not suggest it, do not start teaching in this style on
-your own.
+**The human starts this skill, never you.** It runs only when they type `/spiegami`. Do not
+offer it, do not suggest it, do not start teaching in this style on your own.
 
 They will typically reach for it after a long investigation or a big decision, or when an
 earlier explanation was too dense, too fast, or too full of jargon.

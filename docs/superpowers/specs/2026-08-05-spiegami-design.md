@@ -41,11 +41,10 @@ material in the conversation — the real file, the real decision, the real erro
 tool, so Claude cannot start it and its description does not sit in the skill list of every
 session. This keeps the agent's context clean — the reason for the setting.
 
-The skill fires when the human asks for it:
-
-- `/spiegami`
-- "explain this to me step by step", "walk me through this", "teach me what we just decided"
-- "spiegami passo passo", "fammi capire", "rispieghiamo tutto"
+The only trigger is the slash command: `/spiegami`, optionally with a language override
+(`/spiegami in italiano`). Plain-language phrasings — "spiegami passo passo", "walk me
+through this" — do **not** start the skill, because starting it from those words would be
+model invocation, which is exactly what is switched off.
 
 Because the model never invokes it, the `description` is written for the human reading the
 slash-command menu, not as a trigger list for the model.
