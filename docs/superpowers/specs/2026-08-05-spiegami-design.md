@@ -32,9 +32,14 @@ material in the conversation — the real file, the real decision, the real erro
   always be read adds a step with no benefit.
 - Junctioned into `~/.claude/skills/spiegami` so it is available in every project.
   Per-directory junction, as with the other skills in this hub.
-- Frontmatter: `name: spiegami`, `user-invocable: true`, plus the `description` below.
+- Frontmatter: `name: spiegami`, `user-invocable: true`, `disable-model-invocation: true`,
+  plus a short human-facing `description`.
 
 ## Trigger
+
+**Human-only.** `disable-model-invocation: true` removes the skill from the model's Skill
+tool, so Claude cannot start it and its description does not sit in the skill list of every
+session. This keeps the agent's context clean — the reason for the setting.
 
 The skill fires when the human asks for it:
 
@@ -42,8 +47,8 @@ The skill fires when the human asks for it:
 - "explain this to me step by step", "walk me through this", "teach me what we just decided"
 - "spiegami passo passo", "fammi capire", "rispieghiamo tutto"
 
-The `description` also allows the model to *offer* the skill after a long investigation or a
-big decision. It never runs on its own.
+Because the model never invokes it, the `description` is written for the human reading the
+slash-command menu, not as a trigger list for the model.
 
 If the conversation holds no substantial material, the skill says so and asks what to cover.
 It does not invent a topic.

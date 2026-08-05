@@ -1,7 +1,8 @@
 ---
 name: spiegami
-description: Use when the human asks to be walked through something one step at a time — "spiegami", "spiegami passo passo", "fammi capire", "explain this to me step by step", "walk me through what we just decided", "retrace this for me", "teach me what we just built". Also use when the human says an explanation was too dense, too fast, or too full of jargon, or after a long investigation or a big decision when they want to own the reasoning themselves.
+description: Walks you through the reasoning already in this conversation, one small step at a time, in plain language, stopping for your OK after each step. Italian or English.
 user-invocable: true
+disable-model-invocation: true
 ---
 
 # Spiegami
@@ -17,9 +18,12 @@ invented case.
 
 ## When to use
 
-- After a long investigation or a big decision, when the human wants to understand it and
-  not just accept it.
-- When an earlier explanation was too dense, too fast, or too full of jargon.
+**The human starts this skill, never you.** It runs only when they type `/spiegami` or ask
+for it in words. Do not offer it, do not suggest it, do not start teaching in this style on
+your own.
+
+They will typically reach for it after a long investigation or a big decision, or when an
+earlier explanation was too dense, too fast, or too full of jargon.
 
 **When not to use:** there is nothing substantial in this conversation to teach. Say that
 plainly and ask what to cover. Do not invent a topic. Do not go read files or a diff to
