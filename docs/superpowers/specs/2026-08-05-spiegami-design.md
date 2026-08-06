@@ -60,8 +60,9 @@ It does not invent a topic.
    shape and the length, nothing more.
 3. **Teach one link.** About 150 words, hard ceiling. One idea. One concrete example taken
    from the real material.
-4. **Check.** A short question at the end of the link. Then stop and wait. The skill never
-   moves to the next link on its own.
+4. **Check.** Ask whether the link is clear — "Tutto chiaro?" — then stop and wait. The
+   check is a yes/no question about the explanation, never a quiz on the content and never
+   a decision for the human. The skill never moves to the next link on its own.
 5. **The human steers.** Any feedback — "clearer", "another example", "too fast", "skip it" —
    is answered as asked. There is no fixed remediation script and no forced sub-decomposition.
    A side question gets answered, then the skill returns to the same link.

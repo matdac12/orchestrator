@@ -51,7 +51,10 @@ Then teach link 1 **in the same message**. There is no approval gate on the map.
 2. **What it does**, in plain words.
 3. **One example from this conversation** — a real path, a real command, a real decision.
 4. **Why it matters**, in one sentence: what breaks or gets harder without it.
-5. **The check** — a short question, then stop.
+5. **The check** — ask whether the link is clear, then stop. The check is a yes/no
+   question about your explanation: "Tutto chiaro?", "Fin qui ok?", "Clear so far?".
+   A yes moves to the next link. It is never a quiz on the content and never a
+   decision for the human to make.
 
 Parts 1 to 4 stay under about 150 words in total. That is a ceiling, not a target.
 
@@ -68,6 +71,7 @@ After the check question, stop and wait. Do not teach the next link until the hu
 | "They said yes fast, they are following" | "Yes" means *next link*, not *all links*. |
 | "Batching is more efficient" | The gate is the skill. Batching deletes it. |
 | "I already showed the map, so they know" | The map is orientation. It teaches nothing. |
+| "A real question makes them engage more" | The check verifies clarity, nothing else. They are not being examined. |
 
 ## Writing rules
 
@@ -113,5 +117,6 @@ Write nothing to disk unless the human asks.
 - An example that did not come from this conversation.
 - A sentence over about 20 words.
 - A term used before some earlier link explained it.
-- A link that ends without a question.
+- A link that ends without asking if it is clear.
+- A check that quizzes the human on the content, or asks them to make a decision.
 - A recap that is longer than one line per link.
