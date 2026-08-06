@@ -22,14 +22,22 @@ relaunch. `ORCH_PROJECT` still works as an override.
 ## Preflight (run once, at the start — do NOT skip)
 
 1. **Confirm the directory.** Run `pwd` / `git remote -v`. Because you merge `done`
-   branches into `main`, this window MUST be inside the **target project's** git
-   checkout — not the orchestrator repo. If it looks wrong, stop and tell the human.
+   branches into the default branch, this window MUST be inside the **target
+   project's** git checkout — not the orchestrator repo. If it looks wrong, stop
+   and tell the human.
 2. **Confirm the project resolves.** Run `python <path>/orch.py status --json`. If it
    errors with `can't infer the project from this directory`, this checkout isn't linked
    → run `python <path>/orch.py link <project>` once here (ask the human the project
    name if unsure), then retry. **Never run `link` from inside a worktree** — it
    rebinds the project's shared root to wherever it's run; the CLI itself now refuses
    this, but you should only ever be running from the main checkout anyway (see step 1).
+3. **Resolve the default branch once.** Run
+   `git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null` — if it prints
+   `origin/<name>`, strip the `origin/` prefix → that's `<defaultBranch>`. Otherwise
+   try `git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p'` as
+   fallback. If both fail, use `main` and warn the human. Treat `main`/`master`
+   as aliases of the same concept (see `orch/report.py:9` `DEFAULT_BRANCH_NAMES`);
+   use `<defaultBranch>` everywhere below — never hardcode `main`.
 
 ## When the human tells you an agent finished
 
@@ -42,18 +50,40 @@ The human names the agent/task that just finished (e.g. "agent A is done"). Act 
    recent events for `kind=warning` on this task (a worker skipped/downgraded a step,
    e.g. Codex review): do not merge the branch until you have accounted for the warning.
 2. For the named task (status `done`):
-   - **Note the rollback point first:** `git rev-parse main` — you need this to restore
-     `main` if the merge looks clean but tests fail. Never leave `main` red; only ever
-     advance it on a verified-green result.
-   - Review the agent's `branch`. Merge it into `main`.
+   - **Note the rollback point first:** `git rev-parse <defaultBranch>` (from
+     Preflight step 3 — this returns a full 40-char SHA, which is the only form
+     `hooks/git_guardrails.py:38` allows for `git reset --hard`). You need this to
+     restore `<defaultBranch>` if the merge looks clean but tests fail. Never leave
+     `<defaultBranch>` red; only ever advance it on a verified-green result.
+   - Review the agent's `branch`. Merge it into `<defaultBranch>`.
      - **Conflicts:** don't block immediately — attempt one disciplined resolve pass.
        For each conflicting hunk, read the originating commit/PR intent on both sides
        and preserve both where possible, then run typecheck → tests → format on the
        result. If you can't confidently resolve a hunk (intent unclear, or it touches
        files outside the task's declared boundaries), `git merge --abort` and treat it
-       as a conflict failure below — `main` was never touched, so there's nothing to
-       roll back.
-   - Run the test suite on the merged (or resolved) result.
+       as a conflict failure below — `<defaultBranch>` was never touched, so there's
+       nothing to roll back.
+   - **Run the project's test suite on the merged (or resolved) result — do not guess
+     the command.** Discover it in this order and run the first that applies (stop at
+     the first match):
+     1. `package.json` → `scripts.test` exists → run with the project's package
+        manager: lockfile `pnpm-lock.yaml` → `pnpm test`, `yarn.lock` → `yarn test`,
+        `bun.lockb` → `bun test`, otherwise `npm test`. If `scripts` also has
+        `typecheck`/`lint`/`format:check`, run those first — they are the
+        "typecheck → tests → format" the conflict path refers to.
+     2. `pyproject.toml` / `pytest.ini` / `setup.cfg` with `[tool.pytest]` →
+        `python -m pytest -q` (or `uv run pytest -q` if `uv.lock` is present).
+     3. `Makefile` with a `test` target and no JS/Python project above → `make test`.
+     4. No recognizable harness → do NOT invent `npm test`/`pytest`. Post
+        `orch post --agent orchestrator --kind warning --msg "no test harness found
+        at <path>, skipping verification — manual check needed"` and treat the
+        merge as unverified (ask the human before marking `merged`; never silently
+        mark green).
+     If `package-lock.json` / `pnpm-lock.yaml` is present, run
+     `python <path>/orch.py deps` first if `node_modules` is stale/missing — the
+     same sync `work/SKILL.md:80-88` uses, so the suite doesn't fail for missing
+     deps. Record the exact command + exit code in the merge report; a non-zero
+     exit is the same as "tests fail" below.
    - Merge/resolve clean and tests pass → update the linked Linear issue (via the Linear
      MCP), then `orch task update --task <id> --status merged`.
    - **Clean up the worktree — best-effort, never blocking.** Read the task's
@@ -77,10 +107,13 @@ The human names the agent/task that just finished (e.g. "agent A is done"). Act 
        metadata.
    - **Either way, this never blocks the task's `merged` status** — cleanup is disk
      hygiene, not correctness; the merge and tests already succeeded.
-   - Tests fail after a clean/resolved merge → **restore `main`:**
-     `git reset --hard <rollback point from above>` — do not leave a red `main` for
-     other agents to branch off of. (Skip this if you already `git merge --abort`ed for
-     an unresolved conflict; there's nothing to restore.) Then, either way:
+   - Tests fail after a clean/resolved merge → **restore `<defaultBranch>`:**
+     `git reset --hard <rollback SHA from above>` — do not leave a red
+     `<defaultBranch>` for other agents to branch off of. (Skip this if you already
+     `git merge --abort`ed for an unresolved conflict; there's nothing to restore.
+     This `reset --hard <40-char-SHA>` is the one form `hooks/git_guardrails.py:38`
+     intentionally allows — any other `reset --hard` shape would be blocked.)
+     Then, either way:
      `orch task update --task <id> --status blocked`,
      `orch post --agent orchestrator --task <id> --kind blocker --msg "<why>"`,
      `orch notify --msg "Merge blocked on task <id>: <why>" --title "Orchestrator needs input"`.
