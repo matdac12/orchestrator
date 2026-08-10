@@ -10,6 +10,7 @@ Il segreto non viene mai stampato, nemmeno in caso di errore.
 """
 
 import argparse
+import difflib
 import json
 import os
 import sys
@@ -200,6 +201,17 @@ def render_table(rows, columns):
     return "\n".join([header, rule, *body])
 
 
+def suggest_names(needle, names, limit=8):
+    """Suggerimenti per un nome sbagliato: prima i simili, poi le sottostringhe.
+
+    La sola sottostringa non basta: un refuso come 'Articolii' non e'
+    sottostringa di niente e lascerebbe l'utente senza indizi.
+    """
+    close = difflib.get_close_matches(needle, names, n=limit, cutoff=0.6)
+    substring = [n for n in filter_names(names, needle) if n not in close]
+    return (close + substring)[:limit]
+
+
 def _build_parser():
     parser = argparse.ArgumentParser(prog="bc_probe", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -241,7 +253,7 @@ def main(argv=None):
         entities = parse_entity_fields(fetch_metadata(token, creds))
         fields = entities.get(args.entity)
         if fields is None:
-            close = filter_names(sorted(entities), args.entity)
+            close = suggest_names(args.entity, sorted(entities))
             print(f"Entita' '{args.entity}' non trovata.", file=sys.stderr)
             if close:
                 print(f"Forse cercavi: {', '.join(close[:10])}", file=sys.stderr)

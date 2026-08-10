@@ -122,6 +122,20 @@ def test_render_table_aligns_and_keeps_header():
     assert len(lines[1].strip()) > 0  # riga separatrice
 
 
+def test_suggest_names_catches_a_typo_substring_search_would_miss():
+    names = ["Articoli", "Articoli_Statistici", "Fornitori"]
+    # 'Articolii' non e' sottostringa di niente: serve il match fuzzy
+    assert bc_probe.filter_names(names, "Articolii") == []
+    assert "Articoli" in bc_probe.suggest_names("Articolii", names)
+
+
+def test_suggest_names_still_returns_substring_matches():
+    names = ["Price_ListLines", "Listini_prezzi_vendita_righe"]
+    assert bc_probe.suggest_names("listini", names) == [
+        "Listini_prezzi_vendita_righe"
+    ]
+
+
 def test_render_table_handles_empty_rows():
     assert bc_probe.render_table([], ["name"]) == "(nessuna riga)"
 
