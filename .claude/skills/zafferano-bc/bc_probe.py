@@ -201,6 +201,35 @@ def render_table(rows, columns):
     return "\n".join([header, rule, *body])
 
 
+def build_query_params(filter_expr, select, top):
+    params = {}
+    if filter_expr:
+        params["$filter"] = filter_expr
+    if select:
+        params["$select"] = select
+    if top:
+        params["$top"] = top
+    return params
+
+
+def fetch_all(url, token, params, max_rows=None, getter=bc_get):
+    """Legge tutte le pagine seguendo @odata.nextLink.
+
+    Chi non pagina legge la prima pagina e non se ne accorge: e' la trappola
+    piu' costosa di questa API. Il nextLink porta gia' la query string, quindi
+    ripassare params lo duplicherebbe.
+    """
+    rows = []
+    while url:
+        data = getter(url, token, params=params)
+        rows.extend(data.get("value", []))
+        if max_rows is not None and len(rows) >= max_rows:
+            return rows[:max_rows]
+        url = data.get("@odata.nextLink")
+        params = None
+    return rows
+
+
 def suggest_names(needle, names, limit=8):
     """Suggerimenti per un nome sbagliato: prima i simili, poi le sottostringhe.
 
@@ -224,6 +253,13 @@ def _build_parser():
     p_fields.add_argument("entity", help="nome esatto dell'entity set")
     p_fields.add_argument("--grep", help="filtro sottostringa sui nomi campo")
 
+    p_query = sub.add_parser("query", help="legge righe da un'entita'")
+    p_query.add_argument("entity")
+    p_query.add_argument("--filter", dest="filter_expr", help="espressione $filter OData")
+    p_query.add_argument("--select", help="elenco campi separati da virgola")
+    p_query.add_argument("--top", type=int, help="ferma la lettura a N righe")
+    p_query.add_argument("--json", action="store_true")
+
     p_raw = sub.add_parser("raw", help="GET su un percorso OData arbitrario")
     p_raw.add_argument("path", help="percorso dopo /ODataV4/")
 
@@ -231,6 +267,12 @@ def _build_parser():
 
 
 def main(argv=None):
+    # Le descrizioni articolo contengono Ø, accenti e simboli: su console
+    # Windows (cp1252) uscirebbero come '?'. Forziamo UTF-8 sullo stdout.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     args = _build_parser().parse_args(argv)
     try:
         creds, source = load_credentials()
@@ -247,6 +289,23 @@ def main(argv=None):
             for name in names:
                 print(name)
             print(f"\n{len(names)} entity set (fonte credenziali: {source})")
+        return 0
+
+    if args.cmd == "query":
+        params = build_query_params(args.filter_expr, args.select, args.top)
+        rows = fetch_all(
+            company_url(creds) + args.entity, token, params, max_rows=args.top
+        )
+        if args.json:
+            print(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+        else:
+            columns = (
+                args.select.split(",")
+                if args.select
+                else list(rows[0])[:8] if rows else []
+            )
+            print(render_table(rows, columns))
+            print(f"\n{len(rows)} righe da {args.entity}")
         return 0
 
     if args.cmd == "fields":

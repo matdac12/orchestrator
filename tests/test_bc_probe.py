@@ -140,6 +140,43 @@ def test_render_table_handles_empty_rows():
     assert bc_probe.render_table([], ["name"]) == "(nessuna riga)"
 
 
+def test_build_query_params_uses_odata_dollar_names():
+    params = bc_probe.build_query_params("No eq 'X'", "No,Description", 5)
+    assert params == {
+        "$filter": "No eq 'X'",
+        "$select": "No,Description",
+        "$top": 5,
+    }
+
+
+def test_build_query_params_omits_unset_options():
+    assert bc_probe.build_query_params(None, None, None) == {}
+
+
+def test_fetch_all_follows_nextlink_and_drops_params_after_first_page():
+    calls = []
+
+    def fake_getter(url, token, params=None):
+        calls.append((url, params))
+        if url == "start":
+            return {"value": [{"n": 1}], "@odata.nextLink": "page2"}
+        return {"value": [{"n": 2}]}
+
+    rows = bc_probe.fetch_all("start", "tok", {"$filter": "x"}, getter=fake_getter)
+    assert rows == [{"n": 1}, {"n": 2}]
+    assert calls[0] == ("start", {"$filter": "x"})
+    # nextLink porta gia' la query dentro l'URL: ripassare i params la duplica
+    assert calls[1] == ("page2", None)
+
+
+def test_fetch_all_stops_at_max_rows():
+    def fake_getter(url, token, params=None):
+        return {"value": [{"n": 1}, {"n": 2}, {"n": 3}], "@odata.nextLink": "more"}
+
+    rows = bc_probe.fetch_all("start", "tok", {}, max_rows=2, getter=fake_getter)
+    assert len(rows) == 2
+
+
 def test_urls_are_built_root_and_company():
     creds = {
         "BC_TENANT_ID": "TEN",
