@@ -61,6 +61,7 @@ user-level, junction verso `~/.claude`), stessa forma di `clockify-report`
 zafferano-bc/
 ├── SKILL.md
 ├── references/
+│   ├── relazioni.md
 │   └── entities.md
 └── bc_probe.py
 ```
@@ -92,6 +93,41 @@ Target ~150 righe. Contiene:
    riga su cosa contiene davvero e come si lega alle altre.
 5. **Come usare il probe**, con esempi.
 6. **Quando aprire `references/entities.md`.**
+
+### references/relazioni.md — il cuore della skill
+
+La domanda che un agente si pone davvero non e' "quali entita' esistono" ma
+"ho un codice articolo, come ricavo tutto quello che si sa su di lui". Questo
+file risponde a quella.
+
+- **`Articoli.No` e' la chiave di join universale.** Da li' si raggiunge
+  tutto il resto.
+- **Mappa delle giunzioni**, ciascuna con il campo esatto da usare:
+  - listini: `Price_ListLines.Product_No` (o `Asset_No`) → `Articoli.No`,
+    filtrando per `Price_List_Code`;
+  - distinta base di produzione: **non** `Articoli.No` → `DB_Righe.No`, ma
+    `Articoli.Production_BOM_No` → `DB_Righe.Production_BOM_No`;
+    `DB_Righe.No` e' il *componente*. Invertirli restituisce in silenzio
+    l'albero sbagliato;
+  - distinta di assemblaggio: `DBAssemblaggio.Parent_Item_No` → articolo
+    padre, `.No` → componente;
+  - venduto: `RigheAnalisiVenduto.No` → articolo,
+    `.Sell_to_Customer_No` → `Dati_Clienti.No`;
+  - fornitore: `Articoli.Vendor_No` → `Fornitori.No`.
+- **Convenzione dei prefissi**, che da sola risparmia molta confusione:
+  nudo = campo BC standard; `NBT_` = personalizzazione del partner;
+  `NBT_ZAF_` = personalizzazione specifica Zafferano (attributi prodotto
+  illuminotecnici: watt, lumen, temperatura colore, IP, batteria, tre livelli
+  di imballo).
+- **Doppioni da conoscere**: `Price_ListLines` e
+  `Listini_prezzi_vendita_righe` espongono lo stesso identico insieme di 33
+  campi — sono due pagine pubblicate sulla stessa tabella.
+- **Quando NON fare join**: `RigheAnalisiVenduto` e' denormalizzata (208
+  campi) e porta gia' dentro gli attributi di prodotto appiattiti. Per
+  l'analisi del venduto la join ad `Articoli` e' spesso inutile e costosa.
+- **Ricette**: sequenze pronte per i casi ricorrenti — "tutto sull'articolo
+  X", "listino completo per codice", "distinta esplosa", "venduto per
+  articolo/cliente/periodo".
 
 ### references/entities.md
 
