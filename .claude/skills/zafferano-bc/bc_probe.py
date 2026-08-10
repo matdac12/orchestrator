@@ -1,0 +1,124 @@
+#!/usr/bin/env python3
+"""
+Probe OData V4 per il Business Central di Zafferano.
+
+Sottocomandi: list, fields, query, raw.  Vedi SKILL.md.
+
+Le credenziali si risolvono in ordine: variabili d'ambiente BC_*, poi un .env
+risalendo dalla directory corrente, poi i percorsi noti in KNOWN_ENV_PATHS.
+Il segreto non viene mai stampato, nemmeno in caso di errore.
+"""
+
+import os
+from pathlib import Path
+
+import requests
+from dotenv import dotenv_values
+
+# --- SPECIFICO DI QUESTA MACCHINA -------------------------------------------
+# Ultimo anello della risoluzione credenziali: percorsi .env noti sulla
+# postazione di Mattia. Chi riceve questa skill altrove cambia SOLO questa
+# lista (o esporta le BC_* nell'ambiente e la lista non viene nemmeno letta).
+KNOWN_ENV_PATHS = [
+    r"C:\Users\MattiaDaCampo\Documents\Zafferano\zafferano-portale-listino\sync\.env",
+    r"C:\Users\MattiaDaCampo\Documents\Zafferano\ProgettoDistinteBasi\.env",
+    r"C:\Users\MattiaDaCampo\Documents\Zafferano\ProgettoKPI\.env",
+    r"C:\Users\MattiaDaCampo\OneDrive - Be Digital Consulting Srl\Zafferano\zafferano-ftp-server\.env",
+    r"C:\Users\MattiaDaCampo\OneDrive - Be Digital Consulting Srl\Zafferano\Progetto_InvioDocumentiEmail\.env",
+]
+# ---------------------------------------------------------------------------
+
+REQUIRED_KEYS = ("BC_TENANT_ID", "BC_CLIENT_ID", "BC_CLIENT_SECRET")
+DEFAULTS = {"BC_ENVIRONMENT": "IT-Prod", "BC_COMPANY": "Zafferano S.r.l."}
+
+TIMEOUT = 120
+WALK_UP_LEVELS = 3
+
+
+class CredentialError(Exception):
+    def __init__(self, missing, source):
+        self.missing = missing
+        self.source = source
+        super().__init__(
+            f"Credenziali BC incomplete: mancano {', '.join(missing)}.\n"
+            f"Fonte consultata: {source}\n"
+            f"Esporta le variabili BC_* oppure aggiungi un .env valido."
+        )
+
+
+def choose_env_file(start_dir, candidates, exists=None):
+    """Primo .env risalendo da start_dir (max WALK_UP_LEVELS), poi i candidati."""
+    if exists is None:
+        exists = lambda p: p.exists()  # noqa: E731
+
+    current = Path(start_dir)
+    for _ in range(WALK_UP_LEVELS + 1):
+        candidate = current / ".env"
+        if exists(candidate):
+            return candidate
+        if current.parent == current:
+            break
+        current = current.parent
+
+    for candidate in candidates:
+        candidate = Path(candidate)
+        if exists(candidate):
+            return candidate
+    return None
+
+
+def resolve_credentials(environ, env_values):
+    """environ vince su env_values, chiave per chiave. Ritorna (creds, missing)."""
+    creds = {}
+    for key in REQUIRED_KEYS + tuple(DEFAULTS):
+        value = environ.get(key) or env_values.get(key) or DEFAULTS.get(key)
+        if value:
+            creds[key] = value
+    missing = [k for k in REQUIRED_KEYS if not creds.get(k)]
+    return creds, missing
+
+
+def load_credentials(start_dir=None):
+    start_dir = Path(start_dir or Path.cwd())
+    env_file = choose_env_file(start_dir, KNOWN_ENV_PATHS)
+    env_values = dotenv_values(env_file, encoding="utf-8") if env_file else {}
+    source = str(env_file) if env_file else "solo variabili d'ambiente"
+    creds, missing = resolve_credentials(os.environ, env_values)
+    if missing:
+        raise CredentialError(missing=missing, source=source)
+    return creds, source
+
+
+def get_token(creds):
+    url = f"https://login.microsoftonline.com/{creds['BC_TENANT_ID']}/oauth2/v2.0/token"
+    resp = requests.post(
+        url,
+        data={
+            "grant_type": "client_credentials",
+            "client_id": creds["BC_CLIENT_ID"],
+            "client_secret": creds["BC_CLIENT_SECRET"],
+            "scope": "https://api.businesscentral.dynamics.com/.default",
+        },
+        timeout=TIMEOUT,
+    )
+    if not resp.ok:
+        # Il corpo della risposta Azure non contiene il secret, ma non lo
+        # inoltriamo comunque: riportiamo solo codice ed error code.
+        code = ""
+        try:
+            code = resp.json().get("error", "")
+        except ValueError:
+            pass
+        raise RuntimeError(f"Auth fallita (HTTP {resp.status_code}, error={code!r}).")
+    return resp.json()["access_token"]
+
+
+def root_url(creds):
+    return (
+        "https://api.businesscentral.dynamics.com/v2.0/"
+        f"{creds['BC_TENANT_ID']}/{creds['BC_ENVIRONMENT']}/ODataV4/"
+    )
+
+
+def company_url(creds):
+    return f"{root_url(creds)}Company('{creds['BC_COMPANY']}')/"
