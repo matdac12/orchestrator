@@ -81,6 +81,51 @@ def test_filter_names_without_pattern_returns_all():
     assert bc_probe.filter_names(names, None) == ["A", "B"]
 
 
+METADATA_FIXTURE = b"""<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
+ <edmx:DataServices>
+  <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="NAV">
+   <EntityType Name="Articoli">
+    <Key><PropertyRef Name="No"/></Key>
+    <Property Name="No" Type="Edm.String" Nullable="false"/>
+    <Property Name="Unit_Price" Type="Edm.Decimal" Nullable="true"/>
+   </EntityType>
+   <EntityType Name="DB_Righe">
+    <Property Name="Production_BOM_No" Type="Edm.String" Nullable="false"/>
+   </EntityType>
+  </Schema>
+ </edmx:DataServices>
+</edmx:Edmx>
+"""
+
+
+def test_parse_entity_fields_extracts_names_types_nullable():
+    parsed = bc_probe.parse_entity_fields(METADATA_FIXTURE)
+    assert set(parsed) == {"Articoli", "DB_Righe"}
+    assert parsed["Articoli"][0] == {
+        "name": "No",
+        "type": "Edm.String",
+        "nullable": False,
+    }
+    assert parsed["Articoli"][1]["type"] == "Edm.Decimal"
+    assert parsed["Articoli"][1]["nullable"] is True
+
+
+def test_render_table_aligns_and_keeps_header():
+    out = bc_probe.render_table(
+        [{"name": "No", "type": "Edm.String"}, {"name": "Unit_Price", "type": "Edm.Decimal"}],
+        ["name", "type"],
+    )
+    lines = out.splitlines()
+    assert lines[0].split() == ["name", "type"]
+    assert "Unit_Price" in lines[-1]
+    assert len(lines[1].strip()) > 0  # riga separatrice
+
+
+def test_render_table_handles_empty_rows():
+    assert bc_probe.render_table([], ["name"]) == "(nessuna riga)"
+
+
 def test_urls_are_built_root_and_company():
     creds = {
         "BC_TENANT_ID": "TEN",

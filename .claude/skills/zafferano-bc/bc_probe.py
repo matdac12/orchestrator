@@ -13,6 +13,7 @@ import argparse
 import json
 import os
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import requests
@@ -36,6 +37,8 @@ DEFAULTS = {"BC_ENVIRONMENT": "IT-Prod", "BC_COMPANY": "Zafferano S.r.l."}
 
 TIMEOUT = 120
 WALK_UP_LEVELS = 3
+
+EDM_NS = "{http://docs.oasis-open.org/odata/ns/edm}"
 
 
 class CredentialError(Exception):
@@ -155,6 +158,48 @@ def filter_names(names, pattern):
     return [n for n in names if needle in n.lower()]
 
 
+def parse_entity_fields(xml_bytes):
+    root = ET.fromstring(xml_bytes)
+    entities = {}
+    for entity_type in root.iter(f"{EDM_NS}EntityType"):
+        fields = [
+            {
+                "name": prop.get("Name"),
+                "type": prop.get("Type"),
+                "nullable": prop.get("Nullable", "true") == "true",
+            }
+            for prop in entity_type.findall(f"{EDM_NS}Property")
+        ]
+        entities[entity_type.get("Name")] = fields
+    return entities
+
+
+def fetch_metadata(token, creds):
+    """Scarica $metadata (circa 4 MB). Una volta sola, poi si riusa."""
+    resp = requests.get(
+        root_url(creds) + "$metadata",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.content
+
+
+def render_table(rows, columns):
+    if not rows:
+        return "(nessuna riga)"
+    widths = {
+        c: max(len(c), max(len(str(r.get(c, ""))) for r in rows)) for c in columns
+    }
+    header = "  ".join(c.ljust(widths[c]) for c in columns).rstrip()
+    rule = "  ".join("-" * widths[c] for c in columns).rstrip()
+    body = [
+        "  ".join(str(r.get(c, "")).ljust(widths[c]) for c in columns).rstrip()
+        for r in rows
+    ]
+    return "\n".join([header, rule, *body])
+
+
 def _build_parser():
     parser = argparse.ArgumentParser(prog="bc_probe", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -162,6 +207,10 @@ def _build_parser():
     p_list = sub.add_parser("list", help="entity set pubblicati")
     p_list.add_argument("--grep", help="filtro sottostringa, case-insensitive")
     p_list.add_argument("--json", action="store_true", help="output JSON")
+
+    p_fields = sub.add_parser("fields", help="campi di un'entita' da $metadata")
+    p_fields.add_argument("entity", help="nome esatto dell'entity set")
+    p_fields.add_argument("--grep", help="filtro sottostringa sui nomi campo")
 
     p_raw = sub.add_parser("raw", help="GET su un percorso OData arbitrario")
     p_raw.add_argument("path", help="percorso dopo /ODataV4/")
@@ -186,6 +235,22 @@ def main(argv=None):
             for name in names:
                 print(name)
             print(f"\n{len(names)} entity set (fonte credenziali: {source})")
+        return 0
+
+    if args.cmd == "fields":
+        entities = parse_entity_fields(fetch_metadata(token, creds))
+        fields = entities.get(args.entity)
+        if fields is None:
+            close = filter_names(sorted(entities), args.entity)
+            print(f"Entita' '{args.entity}' non trovata.", file=sys.stderr)
+            if close:
+                print(f"Forse cercavi: {', '.join(close[:10])}", file=sys.stderr)
+            return 3
+        if args.grep:
+            needle = args.grep.lower()
+            fields = [f for f in fields if needle in f["name"].lower()]
+        print(render_table(fields, ["name", "type", "nullable"]))
+        print(f"\n{len(fields)} campi in {args.entity}")
         return 0
 
     if args.cmd == "raw":
