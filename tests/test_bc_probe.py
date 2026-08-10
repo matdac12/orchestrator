@@ -68,6 +68,19 @@ def test_credential_error_message_never_leaks_the_secret():
     assert "/some/.env" in rendered
 
 
+def test_filter_names_is_case_insensitive_substring():
+    names = ["Articoli", "Price_ListLines", "Listini_prezzi_vendita_righe"]
+    # case-insensitive: minuscolo trova il CamelCase
+    assert bc_probe.filter_names(names, "listlines") == ["Price_ListLines"]
+    # ed e' sottostringa esatta: "listi" non compare in "price_listlines"
+    assert bc_probe.filter_names(names, "listi") == ["Listini_prezzi_vendita_righe"]
+
+
+def test_filter_names_without_pattern_returns_all():
+    names = ["A", "B"]
+    assert bc_probe.filter_names(names, None) == ["A", "B"]
+
+
 def test_urls_are_built_root_and_company():
     creds = {
         "BC_TENANT_ID": "TEN",

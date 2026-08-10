@@ -9,7 +9,10 @@ risalendo dalla directory corrente, poi i percorsi noti in KNOWN_ENV_PATHS.
 Il segreto non viene mai stampato, nemmeno in caso di errore.
 """
 
+import argparse
+import json
 import os
+import sys
 from pathlib import Path
 
 import requests
@@ -122,3 +125,76 @@ def root_url(creds):
 
 def company_url(creds):
     return f"{root_url(creds)}Company('{creds['BC_COMPANY']}')/"
+
+
+def bc_get(url, token, params=None):
+    resp = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        params=params,
+        timeout=TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def list_entity_sets(token, creds):
+    """Elenco degli entity set pubblicati.
+
+    Sta alla RADICE /ODataV4/, non sotto Company('...'): sotto Company la
+    risposta e' una lista vuota e sembra che il tenant non pubblichi nulla.
+    """
+    data = bc_get(root_url(creds), token)
+    return sorted(item.get("name", "") for item in data.get("value", []))
+
+
+def filter_names(names, pattern):
+    if not pattern:
+        return list(names)
+    needle = pattern.lower()
+    return [n for n in names if needle in n.lower()]
+
+
+def _build_parser():
+    parser = argparse.ArgumentParser(prog="bc_probe", description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_list = sub.add_parser("list", help="entity set pubblicati")
+    p_list.add_argument("--grep", help="filtro sottostringa, case-insensitive")
+    p_list.add_argument("--json", action="store_true", help="output JSON")
+
+    p_raw = sub.add_parser("raw", help="GET su un percorso OData arbitrario")
+    p_raw.add_argument("path", help="percorso dopo /ODataV4/")
+
+    return parser
+
+
+def main(argv=None):
+    args = _build_parser().parse_args(argv)
+    try:
+        creds, source = load_credentials()
+    except CredentialError as exc:
+        print(exc, file=sys.stderr)
+        return 2
+    token = get_token(creds)
+
+    if args.cmd == "list":
+        names = filter_names(list_entity_sets(token, creds), args.grep)
+        if args.json:
+            print(json.dumps(names, ensure_ascii=False, indent=2))
+        else:
+            for name in names:
+                print(name)
+            print(f"\n{len(names)} entity set (fonte credenziali: {source})")
+        return 0
+
+    if args.cmd == "raw":
+        data = bc_get(root_url(creds) + args.path.lstrip("/"), token)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0
+
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
