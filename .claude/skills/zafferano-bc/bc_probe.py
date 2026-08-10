@@ -131,6 +131,10 @@ def company_url(creds):
     return f"{root_url(creds)}Company('{creds['BC_COMPANY']}')/"
 
 
+class ODataError(Exception):
+    pass
+
+
 def bc_get(url, token, params=None):
     resp = requests.get(
         url,
@@ -138,8 +142,25 @@ def bc_get(url, token, params=None):
         params=params,
         timeout=TIMEOUT,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        # BC dice esattamente quale proprieta' non esiste: e' l'informazione
+        # che serve, e uno stack trace la nasconderebbe.
+        raise ODataError(f"HTTP {resp.status_code} — {odata_error_message(resp)}")
     return resp.json()
+
+
+def odata_error_message(resp):
+    """Estrae il messaggio d'errore OData, con fallback al corpo grezzo."""
+    try:
+        payload = resp.json()
+    except ValueError:
+        return resp.text[:300]
+    error = payload.get("error")
+    if isinstance(error, dict):
+        message = error.get("message") or ""
+        # La CorrelationId serve al supporto Microsoft, non a chi sta leggendo.
+        return message.split("CorrelationId:")[0].strip() or str(error)
+    return str(payload)[:300]
 
 
 def list_entity_sets(token, creds):
@@ -280,6 +301,20 @@ def main(argv=None):
         print(exc, file=sys.stderr)
         return 2
     token = get_token(creds)
+
+    try:
+        return _dispatch(args, creds, token, source)
+    except ODataError as exc:
+        print(exc, file=sys.stderr)
+        print(
+            "Suggerimento: `bc_probe.py fields <Entita>` elenca i nomi esatti "
+            "dei campi.",
+            file=sys.stderr,
+        )
+        return 4
+
+
+def _dispatch(args, creds, token, source):
 
     if args.cmd == "list":
         names = filter_names(list_entity_sets(token, creds), args.grep)

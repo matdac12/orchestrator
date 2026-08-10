@@ -136,6 +136,39 @@ def test_suggest_names_still_returns_substring_matches():
     ]
 
 
+class _FakeResp:
+    def __init__(self, payload=None, text=""):
+        self._payload = payload
+        self.text = text
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("no json")
+        return self._payload
+
+
+def test_odata_error_message_extracts_property_name_and_drops_correlation_id():
+    resp = _FakeResp(
+        {
+            "error": {
+                "code": "BadRequest",
+                "message": (
+                    "Could not find a property named 'Source_Type' on type "
+                    "'NAV.Price_List'.  CorrelationId:  250067dc-382c."
+                ),
+            }
+        }
+    )
+    msg = bc_probe.odata_error_message(resp)
+    assert "Source_Type" in msg
+    assert "CorrelationId" not in msg
+
+
+def test_odata_error_message_falls_back_to_raw_body():
+    resp = _FakeResp(payload=None, text="<html>gateway timeout</html>")
+    assert "gateway timeout" in bc_probe.odata_error_message(resp)
+
+
 def test_render_table_handles_empty_rows():
     assert bc_probe.render_table([], ["name"]) == "(nessuna riga)"
 
