@@ -316,6 +316,92 @@ class CLITest(unittest.TestCase):
         self.assertEqual(out.returncode, 0)
         self.assertIn("ping", out.stdout)
 
+    def _project_with_task(self, agent="A", status="executing"):
+        run(["init", "demo"], self.db)
+        add = run(["task", "add", "--project", "demo", "--agent", agent,
+                   "--title", "X", "--status", status], self.db)
+        return int(add.stdout.strip().split()[-1])
+
+    def test_progress_records_and_prints(self):
+        self._project_with_task()
+        out = run(["progress", "--project", "demo", "--agent", "A",
+                   "--phase", "implementation", "--step", "3",
+                   "--step-total", "6", "--msg", "wiring the CLI",
+                   "--next", "status output"], self.db)
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("implementation 3/6", out.stdout)
+        self.assertIn("status output", out.stdout)
+
+    def test_progress_json_shape(self):
+        tid = self._project_with_task()
+        out = run(["progress", "--project", "demo", "--agent", "A",
+                   "--phase", "planning", "--msg", "drafting", "--json"],
+                  self.db)
+        self.assertEqual(out.returncode, 0)
+        payload = json.loads(out.stdout)
+        self.assertEqual(payload["task_id"], tid)
+        self.assertEqual(payload["phase"], "planning")
+        self.assertIsNone(payload["step"])
+        self.assertTrue(payload["recorded"])
+
+    def test_progress_repeat_reports_unchanged(self):
+        self._project_with_task()
+        args = ["progress", "--project", "demo", "--agent", "A",
+                "--phase", "setup", "--msg", "worktree ready"]
+        run(args, self.db)
+        out = run(args, self.db)
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("unchanged", out.stdout)
+
+    def test_progress_unknown_phase_errors(self):
+        self._project_with_task()
+        out = run(["progress", "--project", "demo", "--agent", "A",
+                   "--phase", "deploying"], self.db)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("implementation", out.stderr)
+
+    def test_progress_bad_step_pair_errors(self):
+        self._project_with_task()
+        out = run(["progress", "--project", "demo", "--agent", "A",
+                   "--phase", "implementation", "--step", "7",
+                   "--step-total", "5"], self.db)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("step", out.stderr)
+
+    def test_progress_on_done_task_errors(self):
+        tid = self._project_with_task()
+        run(["task", "update", "--project", "demo", "--task", str(tid),
+             "--status", "done"], self.db)
+        out = run(["progress", "--project", "demo", "--agent", "A",
+                   "--phase", "checkpoint", "--task", str(tid)], self.db)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("orch report", out.stderr)
+
+    def test_progress_ambiguous_requires_task(self):
+        self._project_with_task()
+        run(["task", "add", "--project", "demo", "--agent", "A",
+             "--title", "Y", "--status", "executing"], self.db)
+        out = run(["progress", "--project", "demo", "--agent", "A",
+                   "--phase", "setup"], self.db)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("--task", out.stderr)
+
+    def test_progress_caps_long_message(self):
+        self._project_with_task()
+        out = run(["progress", "--project", "demo", "--agent", "A",
+                   "--phase", "implementation", "--msg", "x" * 400,
+                   "--json"], self.db)
+        payload = json.loads(out.stdout)
+        self.assertTrue(payload["truncated"])
+        self.assertEqual(len(payload["message"]), 200)
+
+    def test_progress_without_agent_errors(self):
+        self._project_with_task()
+        out = run(["progress", "--project", "demo", "--phase", "setup"],
+                  self.db)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("agent", out.stderr.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

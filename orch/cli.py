@@ -5,6 +5,7 @@ import subprocess
 import sys
 
 from orch import db
+from orch.progress import PHASES
 
 
 def _project(conn, args):
@@ -178,6 +179,29 @@ def cmd_report(conn, args):
     return 0
 
 
+def cmd_progress(conn, args):
+    from orch import progress as progress_mod
+    agent = args.agent or os.environ.get("ORCH_AGENT")
+    if not agent:
+        print("error: no agent given (use --agent or ORCH_AGENT)",
+              file=sys.stderr)
+        return 1
+    result = progress_mod.record(
+        conn, _project(conn, args), agent, args.phase, message=args.msg,
+        step=args.step, step_total=args.step_total, next_step=args.next,
+        task_id=args.task)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    suffix = "" if result["recorded"] else " (unchanged)"
+    print(f"progress: {progress_mod.format_line(result)}{suffix}")
+    if result["next_step"]:
+        print(f"next: {result['next_step']}")
+    if result["truncated"]:
+        print(f"note: message shortened to {progress_mod.MAX_MESSAGE} chars")
+    return 0
+
+
 def cmd_notify(conn, args):
     from orch.notify import send
     send(args.msg, title=args.title)
@@ -298,6 +322,20 @@ def build_parser():
     pr.add_argument("--msg", default="")
     pr.add_argument("--branch")
     pr.set_defaults(func=cmd_report)
+
+    # --phase is validated twice on purpose: argparse rejects it here with
+    # the valid list, and progress.record rejects it for any non-CLI caller.
+    pg = sub.add_parser("progress")
+    pg.add_argument("--project")
+    pg.add_argument("--agent")
+    pg.add_argument("--task", type=int)
+    pg.add_argument("--phase", required=True, choices=list(PHASES))
+    pg.add_argument("--step", type=int)
+    pg.add_argument("--step-total", type=int)
+    pg.add_argument("--msg", default="")
+    pg.add_argument("--next", default="")
+    pg.add_argument("--json", action="store_true")
+    pg.set_defaults(func=cmd_progress)
 
     pnf = sub.add_parser("notify")
     pnf.add_argument("--project")
