@@ -45,4 +45,31 @@ assert.deepStrictEqual(p.ready.map(t => t.agent), ['E', 'D'],
                        'ready sorts oldest first');
 assert.deepStrictEqual(p.idle, ['F']);
 
+// A bar is drawn only when the phase actually has a step count
+const withSteps = d.progressBlock({progress: {
+  phase: 'implementation', step: 3, step_total: 6,
+  message: 'wiring the CLI', next_step: 'status output', updated_at: iso(0)}});
+assert.ok(withSteps.includes('class=bar'), 'steps get a bar');
+assert.ok(withSteps.includes('3/6'));
+assert.ok(withSteps.includes('width:50%'), '3 of 6 is half');
+assert.ok(withSteps.includes('next: status output'));
+
+const noSteps = d.progressBlock({progress: {
+  phase: 'planning', step: null, step_total: null,
+  message: 'drafting', next_step: null, updated_at: iso(0)}});
+assert.ok(!noSteps.includes('class=bar'), 'no steps, no bar');
+assert.ok(noSteps.includes('planning'));
+
+assert.strictEqual(d.progressBlock({progress: null}), '');
+assert.strictEqual(d.progressBlock(null), '');
+
+// Markup in a title must render as text
+const block = d.agentBlock({
+  agent: 'A', status: 'executing',
+  current_task: {title: '<script>x</script>', branch: 'feat/a',
+                 progress: null}});
+assert.ok(!block.includes('<script>x'), 'title is escaped');
+assert.ok(block.includes('&lt;script&gt;'));
+assert.ok(block.includes('feat/a'));
+
 console.log('dashboard.js behavioural checks passed');

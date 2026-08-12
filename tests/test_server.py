@@ -64,6 +64,12 @@ class DashboardAssetTest(unittest.TestCase):
         self.assertIn('data-project="demo"', html)
         self.assertNotIn("{project}", html)
 
+    def test_index_has_the_new_sections(self):
+        html, _ = server.render_index("demo")
+        for marker in ('id="working"', 'id="ready"', 'id="counts"',
+                       'id="idle"', 'id="feed"', "READY TO MERGE"):
+            self.assertIn(marker, html)
+
     def test_dashboard_js_is_served(self):
         body, ctype = server.render_dashboard_js()
         self.assertIn("javascript", ctype)

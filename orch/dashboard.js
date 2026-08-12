@@ -50,36 +50,61 @@ function setHealth(ok) {
   h.textContent = ok ? ('connected ' + t) : ('DISCONNECTED since ' + t);
 }
 
-function progressLine(t) {
+function progressBlock(t) {
   const p = t && t.progress;
   if (!p) return '';
-  const step = (p.step && p.step_total) ? ' ' + p.step + '/' + p.step_total : '';
-  const msg = p.message ? ' · ' + esc(p.message) : '';
+  const hasSteps = Boolean(p.step && p.step_total);
+  // No bar without a step count. A bar for `planning` would have to invent a
+  // percentage, and a bar that silently means nothing is worse than no bar.
+  const pct = hasSteps ? Math.round((p.step / p.step_total) * 100) : 0;
+  const bar = hasSteps
+    ? '<div class=bar><div class=fill style="width:' + pct + '%"></div></div>' +
+      '<span class=steps>' + p.step + '/' + p.step_total + '</span>'
+    : '';
+  const msg = p.message ? '<div class=msg>' + esc(p.message) + '</div>' : '';
   const nxt = p.next_step
-    ? '<br><span class=muted>next: ' + esc(p.next_step) + '</span>' : '';
-  return '<br><span class=phase>' + esc(p.phase) + step + '</span>' + msg + nxt;
+    ? '<span>next: ' + esc(p.next_step) + '</span>' : '';
+  return '<div class=prog><span class=phase>' + esc(p.phase) + '</span>' +
+    bar + '</div>' + msg +
+    '<div class=meta>' + nxt +
+    '<span class=age>' + ago(p.updated_at) + '</span></div>';
+}
+
+function agentBlock(a) {
+  const t = a.current_task;
+  const title = t ? esc(t.title) : '<span class=muted>no task</span>';
+  const branch = t && t.branch
+    ? '<span class=branch>' + esc(t.branch) + '</span>' : '';
+  return '<div class=agent><div class=head>' +
+    '<b class=letter>' + esc(a.agent) + '</b>' +
+    '<span class="badge ' + esc(a.status) + '">' + esc(a.status) + '</span>' +
+    '<span class=title>' + title + '</span>' + branch + '</div>' +
+    progressBlock(t) + '</div>';
+}
+
+function setText(id, text) {
+  document.getElementById(id).textContent = text;
 }
 
 function render(s) {
+  const parts = partition(s);
   const w = s.waiting || [];
   document.getElementById('waiting').innerHTML = w.length
     ? '<div class=waiting>WAITING ON YOU: ' + w.map(x =>
         esc(x.agent) + (x.reason ? ' (' + esc(x.reason) + ')' : '')).join(', ')
       + '</div>'
     : '';
-  document.getElementById('cols').innerHTML = s.agents.map(a => {
-    const ct = a.current_task
-      ? esc(a.current_task.title) : '<span class=muted>no task</span>';
-    const br = a.current_task && a.current_task.branch
-      ? ' <span class=muted>[' + esc(a.current_task.branch) + ']</span>' : '';
-    return '<div class=agent><b>' + esc(a.agent) + '</b> ' +
-      '<span class="badge ' + esc(a.status) + '">' + esc(a.status) +
-      '</span><br>' + ct + br + progressLine(a.current_task) + '</div>';
-  }).join('');
+  document.getElementById('working').innerHTML =
+    parts.working.length
+      ? parts.working.map(agentBlock).join('')
+      : '<div class=agent><span class=muted>no agent is working</span></div>';
+  // The feed lives inside a <details> that is never re-created, so whether you
+  // left it open survives every poll.
   document.getElementById('feed').innerHTML = s.events.map(e =>
     '<div class=ev><span class=muted>' + esc(e.created_at) + '</span> ' +
     '<b>' + esc(e.agent) + '</b>/' + esc(e.kind) + ': ' + esc(e.message) +
     '</div>').join('');
+  setText('feedsummary', 'recent activity (' + s.events.length + ')');
 }
 
 async function tick() {
@@ -93,7 +118,7 @@ async function tick() {
     return;
   }
   if (s.error) {
-    document.getElementById('cols').innerHTML =
+    document.getElementById('working').innerHTML =
       '<div class=agent>' + esc(s.error) + '</div>';
     return;
   }
@@ -108,5 +133,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { esc, ago, partition, progressLine, render };
+  module.exports = { esc, ago, partition, progressBlock, agentBlock, render };
 }
