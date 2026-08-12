@@ -113,7 +113,7 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 | `wait [--timeout --interval]` | block until project state changes (new event / task transition) or timeout; exit 0 on change, 2 on timeout |
 | `log [--agent -n]` | recent event feed |
 | `notify --msg ... [--title ...]` | send a Telegram ping (dry-run if no token) |
-| `serve [--port]` | on-demand web dashboard (defaults to the only project if there is one) |
+| `serve [--port]` | on-demand web dashboard: working agents with phase and step progress, tasks waiting to merge, and a collapsed event feed (defaults to the only project if there is one) |
 
 **Waiting on the human.** Posting `needs_discussion`, `blocker`, or `needs_human` — or
 reporting a `blocked` status (`orch report --status blocked` / `/report blocked ...`) —
