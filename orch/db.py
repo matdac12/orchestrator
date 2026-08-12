@@ -36,6 +36,10 @@ CREATE TABLE IF NOT EXISTS events (
     agent      TEXT NOT NULL,
     kind       TEXT NOT NULL DEFAULT 'status',
     message    TEXT NOT NULL DEFAULT '',
+    progress_phase       TEXT,
+    progress_step        INTEGER,
+    progress_step_total  INTEGER,
+    progress_next_step   TEXT,
     created_at TEXT NOT NULL
 );
 """
@@ -84,6 +88,18 @@ def _migrate(conn):
         # `pcols` is empty only when the projects table doesn't exist yet
         # (e.g. an isolated migration test); skip then.
         _add_column(conn, "projects", "path TEXT")
+    ecols = {r[1] for r in conn.execute("PRAGMA table_info(events)")}
+    if ecols:
+        # Progress: what a worker is doing and how far into its plan it is.
+        # Checked one column at a time, not gated on the first, so a run
+        # interrupted midway through completes on the next connect.
+        for name, ddl in (
+                ("progress_phase", "progress_phase TEXT"),
+                ("progress_step", "progress_step INTEGER"),
+                ("progress_step_total", "progress_step_total INTEGER"),
+                ("progress_next_step", "progress_next_step TEXT")):
+            if name not in ecols:
+                _add_column(conn, "events", ddl)
     conn.commit()
 
 
@@ -249,8 +265,58 @@ def _active_tasks(conn, project_id, agent):
     ).fetchall()
 
 
+def resolve_task(conn, project, agent, task_id=None, required=True):
+    """The task an event attaches to: an explicit id, else the agent's single
+    active task. With `required=False`, returns None instead of raising when
+    the agent has no active task or more than one — the shape `post_event`
+    needs for a bare note, which may legitimately have no task."""
+    pid = require_project(conn, project)["id"]
+    if task_id is not None:
+        row = conn.execute(
+            "SELECT * FROM tasks WHERE id = ? AND project_id = ?",
+            (task_id, pid)).fetchone()
+        if row is None:
+            raise NotFound(f"task {task_id} not found in '{project}'")
+        return dict(row)
+    active = _active_tasks(conn, pid, agent)
+    if len(active) == 1:
+        return dict(active[0])
+    if not required:
+        return None
+    if not active:
+        raise NotFound(
+            f"agent '{agent}' has no active task in '{project}'; pass --task")
+    raise Ambiguous(
+        f"agent '{agent}' has {len(active)} active tasks; pass --task <id>")
+
+
+def latest_progress(conn, task_id):
+    """A task's current progress: the newest kind='progress' event, or None.
+
+    Derived rather than stored. A denormalized snapshot on `tasks` would be a
+    second source of truth for the same fact, with an atomicity requirement
+    to keep the two agreeing; this query costs nothing at our scale."""
+    if task_id is None:
+        return None
+    row = conn.execute(
+        "SELECT message, progress_phase, progress_step, "
+        "progress_step_total, progress_next_step, created_at "
+        "FROM events WHERE task_id = ? AND kind = 'progress' "
+        "ORDER BY id DESC LIMIT 1", (task_id,)).fetchone()
+    if row is None:
+        return None
+    return {
+        "phase": row["progress_phase"],
+        "step": row["progress_step"],
+        "step_total": row["progress_step_total"],
+        "message": row["message"],
+        "next_step": row["progress_next_step"],
+        "updated_at": row["created_at"],
+    }
+
+
 def post_event(conn, project, agent, kind="status", message="",
-               task_id=None, status=None, branch=None):
+               task_id=None, status=None, branch=None, progress=None):
     if status is not None and status not in TASK_STATUSES:
         raise ValueError(
             f"invalid status '{status}', expected one of {TASK_STATUSES}")
@@ -258,29 +324,23 @@ def post_event(conn, project, agent, kind="status", message="",
 
     # Resolve target task when we need one (status/branch update) or when a
     # single active task exists to attach the event to.
-    need_task = status is not None or branch is not None
     if task_id is None:
-        active = _active_tasks(conn, pid, agent)
-        if need_task:
-            if len(active) == 0:
-                raise NotFound(
-                    f"agent '{agent}' has no active task in '{project}' "
-                    f"to apply status/branch to; pass --task")
-            if len(active) > 1:
-                raise Ambiguous(
-                    f"agent '{agent}' has {len(active)} active tasks; "
-                    f"pass --task <id>")
-            task_id = active[0]["id"]
-        elif len(active) == 1:
-            task_id = active[0]["id"]
+        need_task = status is not None or branch is not None
+        found = resolve_task(conn, project, agent, required=need_task)
+        task_id = found["id"] if found else None
 
+    prog = progress or {}
     ts = now()
 
     def _do():
         cur = conn.execute(
             "INSERT INTO events (project_id, task_id, agent, kind, message, "
-            "created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (pid, task_id, agent, kind, message, ts),
+            "progress_phase, progress_step, progress_step_total, "
+            "progress_next_step, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (pid, task_id, agent, kind, message, prog.get("phase"),
+             prog.get("step"), prog.get("step_total"),
+             prog.get("next_step"), ts),
         )
         # Update the task: status/branch, plus the needs_human flag which is
         # raised by signalling kinds and cleared when work resumes.

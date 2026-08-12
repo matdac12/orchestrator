@@ -474,5 +474,112 @@ class StateTest(unittest.TestCase):
         self.assertEqual(state["events"][0]["message"], "e9")
 
 
+class ProgressStorageTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.conn = db.connect(os.path.join(self.tmp, "state.db"))
+        db.create_project(self.conn, "demo")
+        self.tid = db.add_task(self.conn, "demo", "A", "x",
+                               status="executing")
+
+    def _post(self, message, phase, step=None, step_total=None,
+              next_step=None):
+        return db.post_event(
+            self.conn, "demo", "A", kind="progress", message=message,
+            task_id=self.tid,
+            progress={"phase": phase, "step": step,
+                      "step_total": step_total, "next_step": next_step})
+
+    def test_fresh_schema_has_progress_columns(self):
+        cols = {r[1] for r in self.conn.execute(
+            "PRAGMA table_info(events)")}
+        self.assertTrue({"progress_phase", "progress_step",
+                         "progress_step_total",
+                         "progress_next_step"}.issubset(cols))
+
+    def test_latest_progress_is_none_without_events(self):
+        self.assertIsNone(db.latest_progress(self.conn, self.tid))
+
+    def test_latest_progress_returns_newest_row(self):
+        self._post("drafting the plan", "planning")
+        self._post("wiring the CLI", "implementation", step=2, step_total=5,
+                   next_step="status output")
+        p = db.latest_progress(self.conn, self.tid)
+        self.assertEqual(p["phase"], "implementation")
+        self.assertEqual(p["step"], 2)
+        self.assertEqual(p["step_total"], 5)
+        self.assertEqual(p["message"], "wiring the CLI")
+        self.assertEqual(p["next_step"], "status output")
+        self.assertTrue(p["updated_at"])
+
+    def test_progress_event_leaves_status_and_needs_human_alone(self):
+        self._post("wiring the CLI", "implementation")
+        row = self.conn.execute(
+            "SELECT status, needs_human FROM tasks WHERE id = ?",
+            (self.tid,)).fetchone()
+        self.assertEqual(row["status"], "executing")
+        self.assertEqual(row["needs_human"], 0)
+
+    def test_resolve_task_finds_single_active_task(self):
+        self.assertEqual(
+            db.resolve_task(self.conn, "demo", "A")["id"], self.tid)
+
+    def test_resolve_task_ambiguous_raises(self):
+        db.add_task(self.conn, "demo", "A", "y", status="executing")
+        with self.assertRaises(db.Ambiguous):
+            db.resolve_task(self.conn, "demo", "A")
+
+    def test_resolve_task_no_active_task_raises(self):
+        with self.assertRaises(db.NotFound):
+            db.resolve_task(self.conn, "demo", "Z")
+
+    def test_resolve_task_optional_returns_none(self):
+        self.assertIsNone(
+            db.resolve_task(self.conn, "demo", "Z", required=False))
+
+    def test_resolve_task_explicit_id_outside_project_raises(self):
+        db.create_project(self.conn, "other")
+        with self.assertRaises(db.NotFound):
+            db.resolve_task(self.conn, "other", "A", task_id=self.tid)
+
+
+class ProgressMigrationTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.path = os.path.join(self.tmp, "legacy.db")
+        legacy = sqlite3.connect(self.path)
+        legacy.executescript(
+            "CREATE TABLE projects (id INTEGER PRIMARY KEY, "
+            " name TEXT UNIQUE NOT NULL, created_at TEXT NOT NULL, "
+            " notes TEXT);"
+            "CREATE TABLE events (id INTEGER PRIMARY KEY, "
+            " project_id INTEGER NOT NULL, task_id INTEGER, "
+            " agent TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'status', "
+            " message TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL);")
+        legacy.commit()
+        legacy.close()
+
+    def _event_cols(self, conn):
+        return {r[1] for r in conn.execute("PRAGMA table_info(events)")}
+
+    def test_legacy_db_gains_progress_columns(self):
+        conn = db.connect(self.path)
+        try:
+            self.assertTrue({"progress_phase", "progress_step",
+                             "progress_step_total", "progress_next_step"}
+                            .issubset(self._event_cols(conn)))
+        finally:
+            conn.close()
+
+    def test_migration_is_idempotent(self):
+        db.connect(self.path).close()
+        conn = db.connect(self.path)
+        try:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(events)")]
+            self.assertEqual(cols.count("progress_phase"), 1)
+        finally:
+            conn.close()
+
+
 if __name__ == "__main__":
     unittest.main()
