@@ -83,6 +83,35 @@ class ReportTest(unittest.TestCase):
         report.report(self.conn, "demo", "A", "done", branch="main")
         self.assertEqual(self._task()["branch"], "main")
 
+    def test_blocked_also_records_blocked_progress(self):
+        report.report(self.conn, "demo", "A", "blocked", msg="no creds",
+                      notifier=lambda m, title=None: None)
+        p = db.latest_progress(self.conn, self.tid)
+        self.assertEqual(p["phase"], "blocked")
+        self.assertEqual(p["message"], "no creds")
+
+    def test_executing_records_no_progress(self):
+        report.report(self.conn, "demo", "A", "executing", msg="go")
+        self.assertIsNone(db.latest_progress(self.conn, self.tid))
+
+    def test_blocked_still_reports_when_progress_fails(self):
+        # Telemetry must never be able to swallow a blocker. Force the
+        # progress write to explode and assert the status still landed.
+        from orch import progress as progress_mod
+        orig = progress_mod.record
+
+        def _boom(*a, **k):
+            raise RuntimeError("boom")
+
+        progress_mod.record = _boom
+        try:
+            report.report(self.conn, "demo", "A", "blocked", msg="stuck",
+                          notifier=lambda m, title=None: None)
+        finally:
+            progress_mod.record = orig
+        self.assertEqual(self._task()["status"], "blocked")
+        self.assertEqual(self._task()["needs_human"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

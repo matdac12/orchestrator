@@ -2,6 +2,7 @@ import subprocess
 
 from orch import db
 from orch import notify as notify_mod
+from orch import progress
 
 # Auto-detection must never record one of these as a task's feature branch:
 # a `done` reported from a window sitting on main would otherwise clobber the
@@ -37,6 +38,13 @@ def report(conn, project, agent, status, msg="", branch=None,
                         message=msg, status=status, branch=eff_branch)
 
     if status == "blocked":
+        # The blocker itself is already recorded above. The progress row is
+        # telemetry on top of it: best-effort, and never allowed to raise
+        # past a blocker the human needs to see.
+        try:
+            progress.record(conn, project, agent, "blocked", message=msg)
+        except Exception:
+            pass
         notifier(f"Agent {agent} blocked: {msg}", title="Blocked")
 
     return eid
