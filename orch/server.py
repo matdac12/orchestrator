@@ -1,11 +1,15 @@
+import html
 import json
 import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from orch import db
 from orch.dashboard import PAGE
+
+DASHBOARD_JS = Path(__file__).with_name("dashboard.js")
 
 
 def render_api_state(project):
@@ -20,7 +24,16 @@ def render_api_state(project):
 
 
 def render_index(project):
-    return PAGE.format(project=project), "text/html; charset=utf-8"
+    # str.replace, not .format(): the page carries raw CSS, whose braces would
+    # otherwise all need doubling. The project name is escaped because it lands
+    # in both an attribute and the page text.
+    body = PAGE.replace("{project}", html.escape(project, quote=True))
+    return body, "text/html; charset=utf-8"
+
+
+def render_dashboard_js():
+    return (DASHBOARD_JS.read_text(encoding="utf-8"),
+            "application/javascript; charset=utf-8")
 
 
 def make_handler(default_project):
@@ -42,6 +55,9 @@ def make_handler(default_project):
                 self._send(body, ctype)
             elif parsed.path == "/":
                 body, ctype = render_index(project)
+                self._send(body, ctype)
+            elif parsed.path == "/dashboard.js":
+                body, ctype = render_dashboard_js()
                 self._send(body, ctype)
             else:
                 self._send("not found", "text/plain; charset=utf-8", 404)

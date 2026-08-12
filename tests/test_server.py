@@ -1,5 +1,7 @@
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -43,21 +45,37 @@ class ServerTest(unittest.TestCase):
                     "blocked", "done", "merged"):
             self.assertIn("." + cls, html)
 
-    def test_index_renders_waiting_and_health(self):
+    def test_index_renders_waiting_and_health_containers(self):
         html, _ = server.render_index("demo")
-        self.assertIn("waiting", html)
-        self.assertIn("health", html)
-        self.assertIn("DISCONNECTED", html)
+        # The strings themselves now live in dashboard.js; the page only has
+        # to provide the containers the script fills.
+        self.assertIn('id="waiting"', html)
+        self.assertIn('id="health"', html)
 
 
-class DashboardProgressTest(unittest.TestCase):
-    def test_page_renders_progress_and_escapes(self):
-        from orch.dashboard import PAGE
-        page = PAGE.format(project="demo")
-        self.assertIn("progressLine", page)
-        self.assertIn("function esc(", page)
-        # .format() must not have eaten the JS braces
-        self.assertNotIn("{{", page)
+class DashboardAssetTest(unittest.TestCase):
+    def test_index_references_the_js_file(self):
+        html, _ = server.render_index("demo")
+        self.assertIn('src="/dashboard.js"', html)
+        self.assertNotIn("function esc(", html)  # JS no longer inline
+
+    def test_index_carries_the_project_without_formatting(self):
+        html, _ = server.render_index("demo")
+        self.assertIn('data-project="demo"', html)
+        self.assertNotIn("{project}", html)
+
+    def test_dashboard_js_is_served(self):
+        body, ctype = server.render_dashboard_js()
+        self.assertIn("javascript", ctype)
+        self.assertIn("function esc(", body)
+
+    def test_dashboard_js_has_valid_syntax(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node not installed")
+        out = subprocess.run([node, "--check", str(server.DASHBOARD_JS)],
+                             capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
 
 
 class ServeProjectResolveTest(unittest.TestCase):
