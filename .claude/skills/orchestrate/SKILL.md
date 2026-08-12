@@ -39,6 +39,36 @@ relaunch. `ORCH_PROJECT` still works as an override.
    as aliases of the same concept (see `orch/report.py:9` `DEFAULT_BRANCH_NAMES`);
    use `<defaultBranch>` everywhere below — never hardcode `main`.
 
+## Reading worker progress
+
+Workers report what they are doing through `orch progress`. Every task in
+`orch status --json` carries a `progress` object (or `null` if nothing was
+reported):
+
+```json
+"progress": {"phase": "implementation", "step": 3, "step_total": 6,
+             "message": "wiring the orch progress CLI",
+             "next_step": "status output",
+             "updated_at": "2026-08-12T10:30:00Z"}
+```
+
+Phases: `setup` · `investigation` · `planning` · `awaiting_approval` ·
+`implementation` · `checkpoint` · `blocked`.
+
+- **Open every invocation with a roll call.** Before anything else, read
+  `orch status --json` and give the human one line per active agent from these
+  snapshots — phase, `N/total` where present, and the message. This is how the
+  human learns how much work is left without asking each window.
+- **Read the structured fields, never the prose.** The `progress` object is
+  authoritative; don't parse phases out of event messages.
+- **A late phase is NOT a merge signal.** `phase=checkpoint` means the worker is
+  reviewing its own code — it is not done, and it may still fail its own review.
+  Only `status=done`, plus the branch, plus a green test run authorizes a merge.
+  Never merge because progress "looks nearly finished."
+- **Old progress is information, not a verdict.** An agent sitting on
+  `awaiting_approval` for an hour is waiting on the human, not broken. Surface
+  it; don't diagnose it.
+
 ## When the human tells you an agent finished
 
 The human names the agent/task that just finished (e.g. "agent A is done"). Act on
@@ -116,7 +146,7 @@ The human names the agent/task that just finished (e.g. "agent A is done"). Act 
      Then, either way:
      `orch task update --task <id> --status blocked`,
      `orch post --agent orchestrator --task <id> --kind blocker --msg "<why>"`,
-     `orch notify --msg "Merge blocked on task <id>: <why>" --title "Orchestrator needs input"`.
+     `orch notify --msg "Merge blocked on task <id>: <why> (last progress: <phase> <N/total> — <message>)" --title "Orchestrator needs input"`.
 3. Report the outcome to the human (merged, or blocked and why) and stop. Don't poll
    or wait for the next thing — the human re-invokes you when another agent finishes.
 
@@ -168,3 +198,5 @@ never spawn one unasked (they may be driving panes themselves this cycle).
 - Queuing new work is collaborative — never invent and queue endless tasks yourself.
 - Merge authority is centralized here; agents only report `done` on a branch.
 - Use `orch post --agent orchestrator ...` for your own events so they appear in the feed.
+- Progress is informational. It tells you what an agent is doing and how far in it
+  is — it never authorizes a merge and never changes a task's status.
