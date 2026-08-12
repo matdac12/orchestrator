@@ -77,6 +77,15 @@ class DashboardAssetTest(unittest.TestCase):
                              capture_output=True, text=True)
         self.assertEqual(out.returncode, 0, out.stderr)
 
+    def test_dashboard_js_behaviour(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("node not installed")
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "dashboard_render_test.js")
+        out = subprocess.run([node, script], capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
 
 class ServeProjectResolveTest(unittest.TestCase):
     def setUp(self):

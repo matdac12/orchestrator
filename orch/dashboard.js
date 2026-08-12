@@ -8,6 +8,41 @@ function esc(s) {
   }[c]));
 }
 
+const ACTIVE = ['queued', 'discussing', 'executing', 'blocked'];
+
+function ago(iso) {
+  // Mirrors cli._age. Stated plainly, with no staleness verdict attached:
+  // 41m on awaiting_approval means the human hasn't answered, not that
+  // anything is broken.
+  const then = Date.parse(iso);
+  if (isNaN(then)) return '';
+  const secs = Math.max(Math.floor((Date.now() - then) / 1000), 0);
+  if (secs < 60) return secs + 's ago';
+  if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+  if (secs < 86400) return Math.floor(secs / 3600) + 'h ago';
+  return Math.floor(secs / 86400) + 'd ago';
+}
+
+function partition(state) {
+  // get_state falls back to an agent's most recent task when it has no active
+  // one, so an agent whose task is done arrives here looking like a working
+  // agent with status 'done'. Splitting on the task's status rather than the
+  // agent's is what keeps it from being listed twice.
+  const working = state.agents
+    .filter(a => ACTIVE.includes(a.status))
+    .sort((a, b) => a.agent.localeCompare(b.agent));
+  const ready = state.tasks
+    .filter(t => t.status === 'done')
+    .sort((a, b) => String(a.updated_at).localeCompare(String(b.updated_at)));
+  const busy = new Set(working.map(a => a.agent));
+  ready.forEach(t => busy.add(t.agent));
+  const idle = state.agents
+    .filter(a => !busy.has(a.agent))
+    .map(a => a.agent)
+    .sort();
+  return {working: working, ready: ready, idle: idle};
+}
+
 function setHealth(ok) {
   const h = document.getElementById('health');
   const t = new Date().toLocaleTimeString();
@@ -73,5 +108,5 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { esc, progressLine, render };
+  module.exports = { esc, ago, partition, progressLine, render };
 }
