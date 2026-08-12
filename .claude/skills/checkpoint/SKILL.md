@@ -24,6 +24,14 @@ instead of discovering it in your report:
 
 `python <path>/orch.py post --agent <AGENT> --kind warning --msg "<step> skipped: <why>"`
 
+**Report the phase as you go.** At the start of Step 1:
+
+`python <path>/orch.py progress --agent <AGENT> --phase checkpoint --msg "self-review"`
+
+and again at the start of Step 2 with `--msg "codex review"`. Step 4's `done` report
+is unchanged — there is no `complete` phase, because the lifecycle status already
+says it.
+
 ## Step 1 — Self-Review (quality, then correctness)
 
 **You cannot run `/code-review` here.** Since Claude Code v2.1.215 it is flagged

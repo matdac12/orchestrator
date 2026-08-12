@@ -86,6 +86,8 @@ once it's linked, so you need NO env vars and NO relaunch.
      else's); otherwise runs a real `npm ci` there. Safe to call every cycle — it
      no-ops per project if `node_modules` is already here (resumed task) or this isn't
      an npm project. Check its output lists every project you expect.
+   - **Report progress:**
+     `python <path>/orch.py progress --agent <AGENT> --phase setup --msg "worktree ready, deps synced"`
 
 3. **Branch on `status`:**
 
@@ -101,10 +103,16 @@ once it's linked, so you need NO env vars and NO relaunch.
        anything) still needs building, and only then proceed to the brainstorm. If
        PHASE 1 shows the issue is already satisfied, say so and propose closing it
        rather than inventing work.
+     - Investigation pass → `orch progress --agent <AGENT> --phase investigation
+       --msg "<what's already shipped vs missing>"`.
      - Brainstorm WITH the human: invoke `superpowers:brainstorming`, using the
        task's `context` as the starting brief, through to `superpowers:writing-plans`.
+       Report it: `orch progress --agent <AGENT> --phase planning
+       --msg "<what you're designing>"`.
      - When the plan file exists: `orch task update --task <id> --plan <plan_path>`.
-     - Ask the human to approve the plan. On approval, continue to step 4.
+     - Ask the human to approve the plan, and report that you're waiting:
+       `orch progress --agent <AGENT> --phase awaiting_approval
+       --msg "plan ready: <plan_path>"`. On approval, continue to step 4.
 
    - **`discussing`** (resumed) → continue the brainstorm/plan from where it stands.
 
@@ -114,8 +122,15 @@ once it's linked, so you need NO env vars and NO relaunch.
 
 4. **Execute (after plan approval):**
    - `/report executing executing plan` (flips the task to `executing`).
-   - Implement the plan via `superpowers:executing-plans`. After each plan task:
-     `/report plan task N done` (recorded as a note).
+   - Count the tasks in the approved plan — that number is `--step-total`.
+   - Implement the plan via `superpowers:executing-plans`. **At the start of each
+     plan task** (not at each checkbox), report which one you are on:
+     `python <path>/orch.py progress --agent <AGENT> --phase implementation
+     --step <N> --step-total <total> --msg "<the task you're starting>"
+     --next "<the one after>"`.
+     `--step` is the task you are starting, never the one you just finished — that
+     is what makes `3/6` answer "how much is left". This replaces the old
+     `/report plan task N done` note; don't send both.
    - Self-review and finish with `/checkpoint` — it runs code review, optional Codex
      review, commits your branch, and reports `done` for you.
 
@@ -144,7 +159,14 @@ If you cannot proceed at any point:
   and report `done`.
 - The human is only present for the brainstorm/plan-approval. Everything after
   approval is autonomous.
-- Report via `/report` (short, frequent) so the orchestrator and dashboard stay live.
+- Report via `/report` for lifecycle (`executing`/`done`/`blocked`) and via
+  `orch progress` at phase boundaries and each plan task, so the orchestrator and
+  dashboard stay live. There is no heartbeat — report at boundaries, not on a timer.
+- **Progress is telemetry: never let it stop the work.** If an `orch progress` call
+  fails, retry it once. If it fails again, post
+  `orch post --agent <AGENT> --kind warning --msg "progress write failed: <why>"`
+  if you can, then carry on with the actual task. A failed progress write is never
+  a reason to report `blocked`, and never a reason to stop.
 - Pass `--agent <AGENT>` explicitly; the project resolves from your linked directory
   (see Preflight). No env vars or relaunch are needed. `ORCH_PROJECT`/`ORCH_AGENT` still
   work as overrides if set.
