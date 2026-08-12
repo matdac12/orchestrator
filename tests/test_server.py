@@ -50,6 +50,16 @@ class ServerTest(unittest.TestCase):
         self.assertIn("DISCONNECTED", html)
 
 
+class DashboardProgressTest(unittest.TestCase):
+    def test_page_renders_progress_and_escapes(self):
+        from orch.dashboard import PAGE
+        page = PAGE.format(project="demo")
+        self.assertIn("progressLine", page)
+        self.assertIn("function esc(", page)
+        # .format() must not have eaten the JS braces
+        self.assertNotIn("{{", page)
+
+
 class ServeProjectResolveTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()

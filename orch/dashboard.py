@@ -12,6 +12,7 @@ PAGE = """<!doctype html>
  .idle{{background:#333}}
  .feed{{padding:0 16px 24px}} .ev{{padding:6px 0;border-top:1px solid #222}}
  .muted{{color:#8b949e;font-size:12px}}
+ .phase{{color:#58a6ff;font-size:12px}}
  .waiting{{margin:12px 16px 0;padding:10px 14px;border-radius:8px;
    background:#7a1f1f;color:#fff;font-weight:600}}
  #health{{float:right;font-weight:400;font-size:12px}}
@@ -27,6 +28,19 @@ function setHealth(ok){{
   const t = new Date().toLocaleTimeString();
   h.className = ok ? 'ok' : 'down';
   h.textContent = ok ? ('connected ' + t) : ('DISCONNECTED since ' + t);
+}}
+function esc(s){{
+  return String(s==null?'':s).replace(/[&<>"]/g, c=>(
+    {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c]));
+}}
+function progressLine(t){{
+  const p = t && t.progress;
+  if(!p) return '';
+  const step = (p.step && p.step_total) ? ' '+p.step+'/'+p.step_total : '';
+  const msg = p.message ? ' · '+esc(p.message) : '';
+  const nxt = p.next_step ?
+    '<br><span class=muted>next: '+esc(p.next_step)+'</span>' : '';
+  return '<br><span class=phase>'+esc(p.phase)+step+'</span>'+msg+nxt;
 }}
 async function tick(){{
   let s;
@@ -46,7 +60,8 @@ async function tick(){{
     const br = a.current_task && a.current_task.branch ?
       ' <span class=muted>['+a.current_task.branch+']</span>' : '';
     return '<div class=agent><b>'+a.agent+'</b> '+
-      '<span class="badge '+a.status+'">'+a.status+'</span><br>'+ct+br+'</div>';
+      '<span class="badge '+a.status+'">'+a.status+'</span><br>'+ct+br+
+      progressLine(a.current_task)+'</div>';
   }}).join('');
   document.getElementById('feed').innerHTML = s.events.map(e=>
     '<div class=ev><span class=muted>'+e.created_at+'</span> '+
