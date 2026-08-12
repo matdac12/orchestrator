@@ -402,6 +402,33 @@ class CLITest(unittest.TestCase):
         self.assertNotEqual(out.returncode, 0)
         self.assertIn("agent", out.stderr.lower())
 
+    def test_status_shows_progress_line(self):
+        self._project_with_task()
+        run(["progress", "--project", "demo", "--agent", "A",
+             "--phase", "implementation", "--step", "3", "--step-total", "6",
+             "--msg", "wiring the CLI", "--next", "status output"], self.db)
+        out = run(["status", "--project", "demo"], self.db)
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("implementation 3/6", out.stdout)
+        self.assertIn("next: status output", out.stdout)
+        self.assertIn("ago", out.stdout)
+
+    def test_status_without_progress_is_unchanged(self):
+        self._project_with_task()
+        out = run(["status", "--project", "demo"], self.db)
+        self.assertEqual(out.returncode, 0)
+        self.assertIn("A: executing", out.stdout)
+        self.assertNotIn("next:", out.stdout)
+
+    def test_status_json_exposes_progress(self):
+        self._project_with_task()
+        run(["progress", "--project", "demo", "--agent", "A",
+             "--phase", "planning", "--msg", "drafting"], self.db)
+        state = json.loads(
+            run(["status", "--project", "demo", "--json"], self.db).stdout)
+        self.assertEqual(state["tasks"][0]["progress"]["phase"], "planning")
+        self.assertIsNone(state["tasks"][0]["progress"]["step"])
+
 
 if __name__ == "__main__":
     unittest.main()

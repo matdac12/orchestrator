@@ -3,8 +3,10 @@ import json
 import os
 import subprocess
 import sys
+from datetime import datetime, timezone
 
 from orch import db
+from orch import progress as progress_mod
 from orch.progress import PHASES
 
 
@@ -54,6 +56,26 @@ def cmd_task_update(conn, args):
     return 0
 
 
+def _age(iso_ts):
+    """'12m ago' for an ISO timestamp. Shown without judgement: 41 minutes on
+    awaiting_approval means the human hasn't answered, not that anything is
+    wrong."""
+    try:
+        then = datetime.fromisoformat(iso_ts)
+    except (TypeError, ValueError):
+        return ""
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=timezone.utc)
+    secs = max(int((datetime.now(timezone.utc) - then).total_seconds()), 0)
+    if secs < 60:
+        return f"{secs}s ago"
+    if secs < 3600:
+        return f"{secs // 60}m ago"
+    if secs < 86400:
+        return f"{secs // 3600}h ago"
+    return f"{secs // 86400}d ago"
+
+
 def _format_status(state):
     lines = [f"project: {state['project']['name']}", ""]
     waiting = state.get("waiting") or []
@@ -68,6 +90,11 @@ def _format_status(state):
         title = f" — {ct['title']}" if ct else ""
         branch = f" [{ct['branch']}]" if ct and ct["branch"] else ""
         lines.append(f"  {a['agent']}: {a['status']}{title}{branch}")
+        prog = ct.get("progress") if ct else None
+        if prog:
+            lines.append(f"       {progress_mod.format_line(prog)}")
+            nxt = f"next: {prog['next_step']} · " if prog["next_step"] else ""
+            lines.append(f"       {nxt}{_age(prog['updated_at'])}")
     lines.append("")
     lines.append("recent events:")
     for e in state["events"][:15]:

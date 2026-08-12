@@ -542,6 +542,25 @@ class ProgressStorageTest(unittest.TestCase):
         with self.assertRaises(db.NotFound):
             db.resolve_task(self.conn, "other", "A", task_id=self.tid)
 
+    def test_get_state_attaches_progress_to_tasks(self):
+        self._post("wiring the CLI", "implementation", step=2, step_total=5)
+        state = db.get_state(self.conn, "demo")
+        task = next(t for t in state["tasks"] if t["id"] == self.tid)
+        self.assertEqual(task["progress"]["phase"], "implementation")
+        self.assertEqual(task["progress"]["step"], 2)
+
+    def test_get_state_progress_is_none_when_unreported(self):
+        state = db.get_state(self.conn, "demo")
+        task = next(t for t in state["tasks"] if t["id"] == self.tid)
+        self.assertIsNone(task["progress"])
+
+    def test_get_state_agent_current_task_carries_progress(self):
+        self._post("codex review", "checkpoint")
+        state = db.get_state(self.conn, "demo")
+        agent = next(a for a in state["agents"] if a["agent"] == "A")
+        self.assertEqual(
+            agent["current_task"]["progress"]["phase"], "checkpoint")
+
 
 class ProgressMigrationTest(unittest.TestCase):
     def setUp(self):

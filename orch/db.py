@@ -382,6 +382,8 @@ def get_state(conn, project, events_limit=50):
     tasks = [dict(r) for r in conn.execute(
         "SELECT * FROM tasks WHERE project_id = ? ORDER BY updated_at DESC",
         (pid,))]
+    for t in tasks:
+        t["progress"] = latest_progress(conn, t["id"])
     events = [dict(r) for r in conn.execute(
         "SELECT * FROM events WHERE project_id = ? "
         "ORDER BY id DESC LIMIT ?", (pid, events_limit))]
