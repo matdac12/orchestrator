@@ -106,6 +106,7 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 | `next --agent A [--json]` | the agent's single active task, or empty |
 | `claim --agent A [--json]` | atomically take the agent's oldest `queued` task (→ `discussing`) |
 | `report --status S [--msg --agent --branch]` | worker shortcut: post `executing\|done\|blocked\|note`; agent from `ORCH_AGENT`; `done` auto-detects branch (never records `main`/`master`); `blocked` pings you |
+| `progress --agent A --phase P [--step N --step-total M --msg --next --task --json]` | record what this worker is doing and how far into its plan it is; phases: `setup` `investigation` `planning` `awaiting_approval` `implementation` `checkpoint` `blocked`. Never changes task status, never pings the human |
 | `post` | append an event; updates the task on `--status`/`--branch`; `--kind status\|note\|blocker\|handoff\|needs_discussion\|needs_human\|warning` |
 | `status [--json]` | current agent/task state + recent events; surfaces a `WAITING ON YOU` banner |
 | `prompt --agent A \| --orchestrator` | print a self-contained, terminal-readable bootstrap prompt (repo path, identity vars, loop cmd, queued task) |
@@ -123,6 +124,21 @@ moves to `executing`/`done`/`merged`. Workers post `kind=warning` when they skip
 downgrade a step (e.g. Codex review unavailable) so the orchestrator sees it before
 merging.
 
+**Worker progress.** Lifecycle status answers "what state is this task in?"; progress
+answers "what is the worker doing, and how much is left?" Workers call `orch progress`
+at phase boundaries and at the start of each plan task, carrying `step N/total` taken
+from the plan's task count. It is event-driven — there is no heartbeat and no timer —
+and purely informational: progress never changes a task's status, never raises
+`needs_human`, and never authorizes a merge. `orch status` shows the latest snapshot
+per agent; `--json` exposes it as a `progress` object (`null` when nothing was
+reported):
+
+```
+A: executing — Progress reporting [feat/progress]
+     implementation 3/6 · wiring the orch progress CLI
+     next: status output · 12m ago
+```
+
 ## Skills (the autonomous loop)
 
 - **`/work <AGENT>`** — run a worker window as `/loop /work A`. Polls for its task,
@@ -135,7 +151,8 @@ merging.
   (and migration name) and state explicit file boundaries ("owns X; do NOT touch Y,
   agent Z owns it") so parallel agents never clobber each other.
 - **`/report <status> <message>`** — worker shortcut to record progress
-  (`executing`/`done`/`blocked`/`note`); no flags to remember.
+  (`executing`/`done`/`blocked`/`note`), plus `/report progress <phase> [N/total]
+  <message>` for a structured progress update; no flags to remember.
 - **`/checkpoint`** — worker post-work flow: code review → optional Codex review →
   commit → auto-report `done`. Does not touch Linear (the orchestrator owns that).
 - **`/agent-handoff`** — spawn a named background `claude` session with a given
