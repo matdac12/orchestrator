@@ -72,4 +72,16 @@ assert.ok(!block.includes('<script>x'), 'title is escaped');
 assert.ok(block.includes('&lt;script&gt;'));
 assert.ok(block.includes('feat/a'));
 
+// The merge strip shows branch, title and how long it has been sitting
+const row = d.mergeRow({agent: 'D', branch: 'feat/d-api',
+                        title: 'Notifications', updated_at: iso(12 * 60 * 1000)});
+assert.ok(row.includes('feat/d-api'));
+assert.ok(row.includes('Notifications'));
+assert.ok(row.includes('12m ago'));
+
+// A task reported done from main has no branch recorded; say so rather than
+// rendering an empty gap
+assert.ok(d.mergeRow({agent: 'D', branch: null, title: 'x',
+                      updated_at: iso(0)}).includes('no branch'));
+
 console.log('dashboard.js behavioural checks passed');

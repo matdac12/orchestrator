@@ -82,6 +82,16 @@ function agentBlock(a) {
     progressBlock(t) + '</div>';
 }
 
+function mergeRow(t) {
+  const branch = t.branch
+    ? esc(t.branch) : '<span class=muted>no branch</span>';
+  return '<div class=merge>' +
+    '<b class=letter>' + esc(t.agent) + '</b>' +
+    '<span class=branch>' + branch + '</span>' +
+    '<span class=title>' + esc(t.title) + '</span>' +
+    '<span class=age>done ' + ago(t.updated_at) + '</span></div>';
+}
+
 function setText(id, text) {
   document.getElementById(id).textContent = text;
 }
@@ -98,6 +108,15 @@ function render(s) {
     parts.working.length
       ? parts.working.map(agentBlock).join('')
       : '<div class=agent><span class=muted>no agent is working</span></div>';
+  // Hide the header too when nothing is waiting — an empty "READY TO MERGE"
+  // heading reads like a broken query.
+  const hasReady = parts.ready.length > 0;
+  document.getElementById('readyhdr').style.display = hasReady ? '' : 'none';
+  document.getElementById('ready').innerHTML =
+    parts.ready.map(mergeRow).join('');
+  setText('idle', parts.idle.length ? 'idle: ' + parts.idle.join(', ') : '');
+  setText('counts', parts.working.length + ' working · ' +
+                    parts.ready.length + ' ready');
   // The feed lives inside a <details> that is never re-created, so whether you
   // left it open survives every poll.
   document.getElementById('feed').innerHTML = s.events.map(e =>
@@ -133,5 +152,7 @@ if (typeof document !== 'undefined') {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { esc, ago, partition, progressBlock, agentBlock, render };
+  module.exports = {
+    esc, ago, partition, progressBlock, agentBlock, mergeRow, render
+  };
 }
