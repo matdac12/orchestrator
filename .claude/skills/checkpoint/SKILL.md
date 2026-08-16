@@ -9,23 +9,33 @@ user-invocable: true
 Run this when the work is written and you want it reviewed before it's considered
 finished. The core is the same everywhere: **quality pass → fresh-eyes correctness
 review → an optional extra review from a different model → commit.** Steps 1 and 3
-always run. Step 2 is a judgement call — in solo mode, Mattia's judgement, not yours.
+always run. Step 2 is a judgement call: in solo mode it's Mattia's call, not yours;
+orchestrated, it's yours, and only a trivial change may skip it.
 
 ## Which mode are you in
 
 Look at the invocation for an explicit `--agent` flag.
 
-- **`/checkpoint --agent <LETTER>`** → **orchestrated mode.** You are a worker in the
+- **`/checkpoint --agent <AGENT>`** → **orchestrated mode.** You are a worker in the
   multi-agent system. Everything below applies, including the orchestrated-only
   callouts and Step 5.
 - **`/checkpoint` with anything else, or nothing** → **solo mode.** Mattia is in the
   conversation with you. Run Steps 0–4b, skip Step 5, and talk to him directly instead
-  of posting events to a database. Solo mode has two human gates — the Step 2 review
-  choice and the Step 4 Linear confirmation — and no others; everything else you
-  decide yourself.
+  of posting events to a database. Solo mode has exactly one human gate — the Step 2
+  review choice. Everything else, Linear included, you decide and do yourself.
 
-**Only a literal `--agent` flag selects orchestrated mode.** Everything else after
-`/checkpoint` is operator context (next section), never an agent letter.
+**Only a literal `--agent` as the first token selects orchestrated mode.** Everything
+else after `/checkpoint` is operator context (next section), never an agent letter —
+including the string `--agent` if it turns up mid-sentence.
+
+**Never run solo mode from a worker session.** Solo is the default, and its Step 2b
+stops to ask a human — so a worker that dropped its flag would stall the whole pipeline
+waiting for someone who isn't there, then write to Linear, which is the orchestrator's
+job. Before accepting solo mode, check for worker evidence: you are inside a
+`<project root>/.claude/worktrees/<AGENT>-<task id>` worktree, or this session began
+with `/work`. If either is true and there's no `--agent` flag, **stop and recover the
+letter** — it's in your `/work` invocation, in the worktree directory name, or from
+`orch next` — rather than proceeding in either mode.
 
 ## Operator context — read the rest of the invocation
 
@@ -53,17 +63,32 @@ normal and expected, and it does not shrink the review.
 Resolve `BASE_SHA` in this order:
 
 1. **On a feature branch** (orchestrated mode always is): the branch point —
-   `git merge-base HEAD origin/<default-branch>`.
+   `git merge-base HEAD origin/<default-branch>`. No remote? Use the local default
+   branch instead.
 2. **On the default branch** (common in solo mode): the parent of the first commit
-   you made this session. You know which commits are yours — walk back to the last
-   commit that predates your work. `git log --oneline -15` to confirm the boundary.
-3. **Can't tell** — solo mode: ask Mattia which commit to review from, in one line.
-   Orchestrated mode: fall back to the branch point and note the assumption.
+   you made this session. Don't do this from memory — memory is the first thing lost
+   to compaction or a resumed session. Run `git log --oneline -15` and pick the
+   boundary from what's actually there.
+3. **Can't tell → ask, don't guess.** Solo mode: ask Mattia which commit to review
+   from, in one line. Orchestrated mode: fall back to the branch point and note the
+   assumption.
+
+Two cases that land in (3) rather than having a clever answer:
+
+- **The first commit of the session is the repo's first commit** — there is no parent,
+  and `git diff BASE_SHA` will fail. Review the whole tree as new.
+- **Commits in the range that aren't yours** — you committed, then pulled, or Mattia
+  committed from another window. Do NOT review someone else's work: the reviewer will
+  file findings on code nobody in this session wrote, and you'll waste a pass
+  defending it. Ask where your work starts.
 
 `HEAD_SHA` is `HEAD`. **Uncommitted working-tree changes are part of the review too** —
 review `git diff BASE_SHA` plus `git status` / `git diff` for anything not yet in.
 
-State the baseline you picked in one line before you start, so it can be corrected.
+**State the baseline before you start** — the SHA *and* the commits it covers
+(`git log --oneline BASE_SHA..HEAD`), in one line each. A wrong range is obvious at a
+glance from the commit subjects and invisible from the SHA alone, and this is the
+cheapest moment to correct it.
 
 ## Standing request from Mattia (who owns this workflow)
 
@@ -179,8 +204,12 @@ Form an actual opinion. "Might as well" is not an assessment.
 
 ### 2b — Ask Mattia (solo mode only)
 
-*(Orchestrated mode: skip this, checkpoint is autonomous. Run the Codex review unless
-Codex is unavailable, and go to 2c.)*
+*(Orchestrated mode: skip this section — there is no human to ask, checkpoint is
+autonomous. **Your 2a assessment decides instead.** A trivial change may skip Step 2
+outright; post a note event saying so and why
+(`orch.py post --agent <AGENT> --kind note --msg "step 2 skipped: trivial change"`).
+Anything above trivial runs the review — Codex first, and the Fable subagent if Codex
+is unavailable. Then go to 2c.)*
 
 Present it compactly and stop for an answer:
 
@@ -239,10 +268,16 @@ for every finding. Unsupported claims get discarded.
 4. If the fixes changed non-trivial logic, re-run the Step 1b review
    (`superpowers:requesting-code-review`) on the updated diff.
 
-**Chose (c) skip, or Mattia declined?** That's a decision, not a degradation — no
-warning needed. But if you *wanted* a review and couldn't get one (the `codex` CLI
-isn't installed, the token expired mid-review, the Fable dispatch failed), flag it per
-**Never degrade silently** — and in solo mode, offer the other option before giving up.
+**Chose (c) skip, or Mattia declined, or assessed it trivial in orchestrated mode?**
+That's a decision, not a degradation — no warning needed (orchestrated still posts the
+note event from 2b).
+
+**Wanted a review and couldn't get one?** Different situation — flag it per **Never
+degrade silently**. But first, fall back rather than giving up: Codex unavailable (CLI
+not installed, token expired mid-review) → **run the Fable subagent instead**, in both
+modes. It's one Agent call away, always available, and delivers the same fresh-eyes
+value from a non-Opus model. Note the substitution. Only if that also fails do you
+skip Step 2 and warn.
 
 ## Step 3 — Commit
 
@@ -269,14 +304,20 @@ gets updated. This is your job, not his.
 
 **Identify the project and issue.** In order:
 
-1. An issue key in the invocation (`/checkpoint MAT-123`) or anywhere in the
-   conversation — that's the answer, use it.
+1. An issue key in the invocation (`/checkpoint MAT-123`) — that's the answer.
+   A key mentioned elsewhere in the conversation is a *candidate*, not an answer:
+   Mattia references past issues in passing ("like we did for MAT-87"), and more than
+   one key can be live in a session.
 2. An issue key in the branch name or in the commits in your Step 0 range.
 3. Otherwise: work out the Linear project from the repo you are in (repo name,
    `package.json`, the client folder it sits under), then use the Linear MCP —
    `list_projects` / `list_issues` — to find the in-progress issue whose description
-   matches what you just built. Read the candidate before deciding; matching on title
-   alone is how you update the wrong issue.
+   matches what you just built.
+
+**Whichever rule produced the key, `get_issue` it and read it before you write.**
+Matching on a title or a remembered key is how you update the wrong issue. If the
+description doesn't describe the work you just did, it's the wrong issue — go back to
+the list.
 
 **Then update it, in proportion to the work.** Use the Linear MCP:
 
@@ -288,13 +329,19 @@ gets updated. This is your job, not his.
 - **Note anything the work revealed** — a follow-up, a finding you deliberately didn't
   apply, a caveat. Better in the issue than in a chat log that scrolls away.
 
-**Confirm before writing.** Tell Mattia which issue you matched and what you're about
-to do to it — "MAT-142, going to comment and close" — and let him correct you. Linear
-is shared with other people; a wrong close is visible to them. If he says nothing to
-correct, proceed.
+**Write it yourself — don't ask first.** You did the work, you reviewed it, you just
+committed it; you are the one who knows what the issue should now say. Update Linear
+and report what you did in Step 4b. This step has no human gate.
 
-**If you genuinely can't find a matching issue,** say so in one line and move on. Do
-not invent one, and do not create a new issue unless asked.
+Two limits on that autonomy:
+
+- **Only act on a match you're actually confident in.** If the best candidate is a
+  guess — several issues plausibly fit, or the description only loosely matches what
+  you built — don't write. Say which issues you considered and ask. A wrong close is
+  visible to everyone else in the workspace, and unlike a bad commit it isn't yours
+  to quietly fix.
+- **Never invent or create.** No matching issue found → say so in one line and move
+  on. Don't open a new issue unless asked.
 
 ## Step 4b — Report back (solo mode)
 
