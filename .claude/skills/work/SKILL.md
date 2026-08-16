@@ -131,11 +131,13 @@ once it's linked, so you need NO env vars and NO relaunch.
      `--step` is the task you are starting, never the one you just finished — that
      is what makes `3/6` answer "how much is left". This replaces the old
      `/report plan task N done` note; don't send both.
-   - Self-review and finish with `/checkpoint` — it runs code review, optional Codex
-     review, commits your branch, and reports `done` for you.
+   - Self-review and finish with `/checkpoint --agent <AGENT>` — it runs code review,
+     optional Codex review, commits your branch, and reports `done` for you. **The
+     `--agent` flag is required**: without it `/checkpoint` runs in solo mode and will
+     not report progress or `done` to the orchestrator.
 
 5. **Finish:**
-   - `/checkpoint` (Step 4 above) already reported `done`. **Stay parked in your
+   - `/checkpoint --agent <AGENT>` (Step 4 above) already reported `done`. **Stay parked in your
      worktree** — do NOT `ExitWorktree` or `cd` back to the project root. Sessions
      are one-task-one-agent: any follow-up after `done` (questions on the branch,
      `/esegui-test`, review fixes) happens right here on your branch's checkout, and
