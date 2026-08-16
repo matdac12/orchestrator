@@ -46,11 +46,27 @@ Consequences:
 ## How to run a review / investigation / adversarial critique
 
 Run in Claude's Bash tool (Git Bash) — the template will not work pasted into
-PowerShell (`mktemp`, heredocs, `<` redirection are POSIX constructs).
+PowerShell (heredocs and `<` redirection are POSIX constructs).
+
+### Two rules that make or break this (read before writing the command)
+
+1. **One single Bash call. Write the prompt AND launch Codex in the same call.**
+   The Bash tool does not persist shell state between calls: files survive, variables
+   do not. Splitting "write the prompt" and "run codex" into two calls leaves `$P`
+   empty in the second one and the run dies on `- < ""`. This is *the* recurring
+   failure mode of this skill — if you catch yourself planning a separate "write the
+   prompt to a file" step, stop and merge it back in.
+2. **Never `mktemp`. Use fixed, self-chosen paths under the session scratchpad.**
+   You need to read `$OUT` from a *later* call, and `mktemp`'s name dies with the call
+   that made it. Pick a short slug per review (`otp-dialog`, `mat1222`) so concurrent
+   reviews in one session don't collide.
 
 ```bash
-P=$(mktemp)
-OUT=$(mktemp)
+S="<paste the scratchpad path from your system prompt>"   # no env var holds it
+SLUG=<short-slug-for-this-review>
+P="$S/codex-$SLUG.prompt.md"
+OUT="$S/codex-$SLUG.out.md"
+
 cat > "$P" <<'EOF'
 Review ONLY — do not edit any files.
 <goal, exact repo + paths, what to look at, the specific question>
@@ -80,16 +96,23 @@ permission allowlist still matches.
   citations let the orchestrator or a downstream agent jump straight to each issue.
 - Always include the literal instruction **"do not edit any files"** — it's the only
   thing keeping the call read-only in practice.
-- Prompt via temp-file + stdin (`< "$P"`), never inline — avoids quoting hell.
-- `-o "$OUT"` (fresh `mktemp`, not a fixed filename) captures the rendered result; read
-  that file for the answer. Fixed paths collide across runs in the same session.
+- Prompt via file + stdin (`< "$P"`), never inline — avoids quoting hell. Write it with
+  the heredoc *inside this same Bash call*, not with the Write tool in a previous step.
+- `-o "$OUT"` captures the rendered result; read that file with the Read tool afterwards.
+  The `$SLUG` is what keeps two reviews in one session from overwriting each other.
 - `--skip-git-repo-check` is needed outside a git repo; harmless inside one.
-- Long runs: use the Bash tool's background option, then read `$OUT` once it completes.
-  Don't kill a quiet run early.
-- Follow-up on the same thread (cheaper, keeps context):
+- **Backgrounding:** if you background this, background *the whole call above* — prompt
+  write plus `codex exec` together. Never background a bare "write the prompt" step: it
+  buys nothing, and when it fails you lose the error. Once it completes, read `$OUT` by
+  its literal path (you cannot re-expand `$OUT` in a later call). Don't kill a quiet run
+  early.
+- Follow-up on the same thread (cheaper, keeps context) — same one-call rule, new slug:
   ```bash
-  P2=$(mktemp); OUT2=$(mktemp)
-  # ... write follow-up prompt to "$P2" ...
+  S="<scratchpad path>"; SLUG=<slug>-followup
+  P2="$S/codex-$SLUG.prompt.md"; OUT2="$S/codex-$SLUG.out.md"
+  cat > "$P2" <<'EOF'
+  <follow-up question>
+  EOF
   (cd "<repo dir>" && codex exec resume --last --dangerously-bypass-approvals-and-sandbox \
     -o "$OUT2" - < "$P2")
   ```
@@ -104,6 +127,17 @@ the shell command, not prompt content — they don't themselves distinguish a re
 invocation from a write-capable one, which is fine only as long as this skill emits
 review-only prompts. A future edit-delegating skill must re-review whether the
 allowlist should cover it.
+
+### When the run fails, check these first
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Bash call fails on the *prompt-writing* step, no Codex output | you split the flow into two calls and/or backgrounded the write | merge into one call per rule 1 above |
+| `codex exec` exits immediately, empty/absent `$OUT` | `$P` or `$OUT` was set in an earlier call and is now empty | fixed scratchpad paths per rule 2; never `mktemp` |
+| `$OUT` unreadable later because you don't know its name | `mktemp` name lost with the call | fixed `codex-$SLUG.out.md` path |
+| `CreateProcessAsUserW failed: 5` in the output | a sandbox mode slipped in | keep `--dangerously-bypass-approvals-and-sandbox` (see above) |
+
+Don't re-diagnose these from scratch each session — they're the same four every time.
 
 ## Review presets: model + reasoning effort
 
