@@ -1,6 +1,7 @@
 ---
 name: prepara-test
 description: Use when a repo needs its visual-test sandbox created or fixed — first time on a client repo, esegui-test reports "not onboarded", the recipe or base image is broken, the sandbox never goes healthy, the app's service shape changed, or the onboarding must be redone from scratch.
+disable-model-invocation: true
 ---
 
 # prepara-test

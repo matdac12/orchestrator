@@ -1,8 +1,8 @@
 ---
 name: whatsapp-me
 description: Sends Mattia a WhatsApp message right now — to report that a long job finished, that it failed, or that you need him back at the terminal. Fires immediately when he types /whatsapp-me; never on your own initiative.
-user-invocable: true
 disable-model-invocation: true
+user-invocable: true
 ---
 
 # whatsapp-me

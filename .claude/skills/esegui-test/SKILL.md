@@ -1,6 +1,7 @@
 ---
 name: esegui-test
 description: Use when you want to visually QA committed work before merging — after a commit or feature change, "test what I built", "run a visual check", "does this actually work in the browser", sandboxed browser QA of a repo that already has a visual-test sandbox. For creating or fixing the sandbox itself, that's prepara-test.
+disable-model-invocation: true
 ---
 
 # esegui-test

@@ -1,8 +1,8 @@
 ---
 name: spiegami
 description: Walks you through the reasoning already in this conversation, one small step at a time, in plain language, stopping for your OK after each step. Italian or English.
-user-invocable: true
 disable-model-invocation: true
+user-invocable: true
 ---
 
 # Spiegami

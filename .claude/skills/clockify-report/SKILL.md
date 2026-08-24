@@ -1,6 +1,7 @@
 ---
 name: clockify-report
 description: Logs Mattia's hours to Clockify — pick the project, resolve the day and times he says in plain language, draft the Italian description from the work actually done, confirm, write. Use when he asks to log/track hours, "rendiconta", "segna le ore", "/clockify-report", or names a block of time to put on a project.
+disable-model-invocation: true
 user-invocable: true
 ---
 
