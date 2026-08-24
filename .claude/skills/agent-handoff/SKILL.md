@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-description: Hand off work to another agent — in Herdr by spawning it in a new tab or its own worktree workspace, otherwise as a named background `claude` session — or as a markdown handoff document in the repo (context summary, or a task brief for a fresh agent) plus a short prompt to paste anywhere. Standalone — no orchestrator/project knowledge required.
+description: Hand off work to another agent — in Herdr by spawning it in a new tab in this workspace, on this checkout or on its own worktree, otherwise as a named background `claude` session — or as a markdown handoff document in the repo (context summary, or a task brief for a fresh agent) plus a short prompt to paste anywhere. Standalone — no orchestrator/project knowledge required.
 disable-model-invocation: true
 user-invocable: true
 argument-hint: "What will the next session focus on?"
@@ -27,39 +27,43 @@ drop sections of the conversation that don't serve it. Still ask which *path*
 
 Always ask first, unless the invoker already said which one.
 
+**Ask every one of these with the `AskUserQuestion` tool, not in prose.**
+
 ### Classic question (not in Herdr)
 
-> Background agent, or handoff document?
->
-> 1. **Background agent** — spawn a named `claude --bg` session right now (terminal workflow).
-> 2. **Handoff document** — write a markdown file in the repo and give you a short prompt to paste into a fresh chat (desktop-app workflow).
+Question — *"How do you want to hand this off?"*, header `Handoff`:
 
-**1** → Path 1. **2** → Path 2.
+- **Background agent** — spawn a named `claude --bg` session right now (terminal workflow).
+- **Prompt to paste** — write a markdown file in the repo and give you a short prompt to paste into a fresh chat (desktop-app workflow).
+
+Background agent → Path 1. Prompt to paste → Path 2.
 
 ### Herdr question
 
-> How do you want to hand this off?
->
-> 1. **I spawn it here** — I start a new agent in this Herdr session and send it the prompt.
-> 2. **Give me the prompt** — I write the handoff document and hand you a short prompt to paste wherever you like.
+**Being inside Herdr is not a reason to assume he wants an agent spawned.** He may
+well want the prompt to paste somewhere else entirely, and guessing wrong leaves a
+live pane he has to go clean up. Ask, every time.
 
-If **1**, ask where, immediately:
+Question — *"How do you want to hand this off?"*, header `Handoff`:
 
-> Where should it run?
->
-> - **a. New tab in this workspace** — same checkout, same working directory. For work that needs no isolation.
-> - **b. New worktree with its own tab** — its own branch and checkout, isolated from what you're doing here.
+- **New tab here** — I open a tab in this workspace, start an agent in it, and send it the prompt.
+- **Prompt to paste** — I write the handoff document and give you a short prompt to paste wherever you like.
 
-**1** → Path 1H (with the placement they chose). **2** → Path 2.
+If he picks the tab, ask the second one immediately — *"Should it have its own
+branch?"*, header `Isolation`:
 
-### Either way
+- **Its own worktree** — new branch and checkout, isolated from what you're doing here.
+- **This checkout** — same working directory. For work that needs no isolation.
 
-If they chose the document, ask the second question immediately:
+Tab → Path 1H, with the isolation he chose. Prompt to paste → Path 2.
 
-> What kind of document?
->
-> - **a. Context summary** — where we are, what's done, what's next, so a fresh chat can pick up.
-> - **b. Task brief** — instructions for another agent: what to read, what to do, what "done" looks like.
+### Document kind
+
+If he chose the document, ask this immediately — *"What kind of document?"*, header
+`Doc kind`:
+
+- **Context summary** — where we are, what's done, what's next, so a fresh chat can pick up.
+- **Task brief** — instructions for another agent: what to read, what to do, what "done" looks like.
 
 Then follow the matching section below. Never write the document *and* spawn an
 agent.
@@ -68,83 +72,86 @@ agent.
 
 ## Path 1H — Herdr agent (in Herdr only)
 
-Takes the same two things as Path 1 — a **name** and a **prompt** — plus the placement
-chosen in Step 0. Nothing else: no notion of orchestrators, tasks, branches or tickets.
+Takes the same two things as Path 1 — a **name** and a **prompt** — plus the isolation
+chosen in Step 0. Nothing else: no notion of orchestrators, tasks or tickets.
 
 The agent name must match `[a-z][a-z0-9_-]{0,31}` and be unique among live agents.
 Derive a short descriptive one from the work (`auth-refactor`, `flaky-tests`) and check
 `herdr agent list` for a collision first — if it's taken, pick another rather than
 spawning a duplicate.
 
-**Labels.** In Mattia's sidebar the **tab label is the identity line at the top** and
-the **workspace label is the place line at the bottom**. So give the tab a short
-human-readable name for the work — Title Case, a few words, not the kebab agent name
-(`Auth refactor`, not `auth-refactor`). Never rename an existing workspace. When you
-create one (path b), label it with the project name, which is the label of the
-workspace you are running in: `herdr workspace get "$HERDR_WORKSPACE_ID"` →
-`.result.workspace.label`. Left to itself Herdr would label it with the worktree
-directory name, which just repeats the tab.
+**Always a tab in the workspace you are already in — never a workspace of its own.**
+Herdr's agent sidebar sorts by workspace and has no notion of worktree parentage, so
+an agent given its own workspace becomes a detached row with nothing tying it to the
+project it belongs to. A tab keeps it grouped with everything else here.
 
-### a. New tab in this workspace
+**Labels.** In Mattia's sidebar the **tab label is the identity line at the top** and
+the **workspace label is the place line at the bottom**. You set the tab label only:
+a short human-readable name for the work — Title Case, a few words, not the kebab
+agent name (`Auth refactor`, not `auth-refactor`), and under ~26 characters or the
+sidebar clips it. **Never set or rename a workspace label** — it is the line that
+tells him which project this row is in, and it is shared by everything in that
+workspace.
+
+### This checkout
 
 ```
 herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "<Work name>" --no-focus
 ```
 
-Read the root pane id from `.result.root_pane` in the JSON response — never guess IDs.
-
-### b. New worktree with its own tab
+### Its own worktree
 
 Ask for the branch name if it isn't obvious from the work; base it on the current
-branch unless told otherwise.
+branch unless told otherwise. Make the worktree with `git`, then open a tab on it:
 
 ```
-herdr worktree create --cwd "$PWD" --branch <branch> --path <repo root>/.claude/worktrees/<name> --label "<project name>" --no-focus
+git -C <repo root> worktree add -b <branch> <repo root>/.claude/worktrees/<name>
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd <repo root>/.claude/worktrees/<name> --label "<Work name>" --no-focus
 ```
 
-**`--cwd "$PWD"` is REQUIRED.** Without it Herdr resolves the source repo from the
-UI-focused workspace rather than from your process, so if Mattia is looking at another
-project you create a worktree of *that* repo at *this* path — silently. Then check it
-before starting anything in it:
+**Use `git`, not `herdr worktree create`.** `git -C <repo root>` names the source repo
+explicitly, from your own process. `herdr worktree create` without `--cwd` resolves it
+from the **UI-focused workspace** instead, so if Mattia is looking at another project
+you silently create a worktree of *that* repo at *this* path — and it also puts the
+result in its own workspace, which is the detached row above. Doing it with `git`
+removes both problems rather than guarding against them.
 
-```
-git -C <that path> rev-parse --path-format=absolute --git-common-dir
-```
+If the `git` command fails (branch exists, path occupied), stop and report it — don't
+retry with `--force` or improvise a different path. If the repo doesn't already
+gitignore `.claude/worktrees/`, mention it.
 
-It must print `<repo root>/.git`. If it names a different repo, remove it with
-`git -C <the repo it named> worktree remove <that path>`, close the workspace you
-created, and tell Mattia — don't start an agent on it.
+### Either way
 
-Read the workspace, tab and root pane out of the JSON response, then label the tab:
-
-```
-herdr tab rename <tab id from the response> "<Work name>"
-```
-
-If the repo doesn't already gitignore `.claude/worktrees/`, mention it.
-
-### Then, either way
+`--workspace "$HERDR_WORKSPACE_ID"` is required: omitted, `tab create` targets the
+UI-focused workspace, which may be another project entirely. `--no-focus` keeps Mattia
+where he is. Read the root pane id from `.result.root_pane` in the JSON response —
+never guess IDs. Then:
 
 1. **Start the agent** in that root pane:
    ```
-   herdr agent start <name> --kind claude --pane <root pane id>
+   herdr agent start <name> --kind claude --pane <root pane id> --timeout 120000
    ```
-   Ask which `--kind` if Mattia wants something other than `claude` (`herdr agent start
-   --help` lists the installed kinds). If it returns `agent_not_ready` the agent came
-   up blocked during startup — `agent read` it and report; do not prompt it.
-2. **Send the prompt.** The `MSYS_NO_PATHCONV=1` prefix is REQUIRED, for the same
-   reason it is on `claude --bg` in Path 1: through Git Bash any argument starting
-   with `/` is rewritten into a Windows path, so a slash-command prompt like `/work B`
-   would arrive as `C:/Program Files/Git/work B`.
+   The default startup timeout is 30s, which a cold agent with MCP servers attached
+   can exceed — hence the explicit `--timeout`. Ask which `--kind` if Mattia wants
+   something other than `claude`; `herdr agent` lists the installed kinds. If it
+   returns `agent_not_ready` the agent came up blocked during startup — `agent read`
+   it and report; do not prompt it.
+2. **Send the prompt.** Prefix with `MSYS_NO_PATHCONV=1` when the prompt starts with
+   `/`, for the same reason it is on `claude --bg` in Path 1: through Git Bash an
+   argument with a leading `/` is rewritten into a Windows path, so a slash-command
+   prompt like `/work B` would arrive as `C:/Program Files/Git/work B`. Only a leading
+   `/` or `//` is affected — slashes inside the text are safe.
    ```
    MSYS_NO_PATHCONV=1 herdr agent prompt <name> "<prompt>" --wait --timeout 120000
    ```
+   Don't carry that prefix onto a command that passes `$PWD`: it is a POSIX path in
+   Git Bash and only reaches Herdr correctly *because* conversion is on.
    If it returns `agent_blocked` the agent is sitting on a dialog: read it, describe
    it, and let Mattia answer. Never answer it yourself.
-3. **Report** `{tab label, name, workspace id, tab id, pane id, cwd, branch}` and how
-   to reach it (`herdr agent read <name>`, or just click the tab). Lead with the tab
-   label — that's the row he'll look for. `--no-focus` throughout means his focus never
-   moved; say so.
+3. **Report** `{tab label, name, tab id, pane id, cwd, branch}` and how to reach it
+   (`herdr agent read <name>`, or just click the tab). Lead with the tab label —
+   that's the row he'll look for, grouped under this workspace. `--no-focus`
+   throughout means his focus never moved; say so.
 
 Never `--focus` unless he asked to switch context, and never rename or close a pane,
 tab or workspace you didn't create.

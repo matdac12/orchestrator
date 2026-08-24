@@ -52,9 +52,9 @@ once it's linked, so you need NO env vars and NO relaunch.
      in some worktree." A stale worktree left over from a *previous* task would pass a
      looser check; the exact comparison catches that. Two outcomes:
      - **cwd matches** → create nothing. In Herdr this is the normal case: the
-       orchestrator makes the worktree, branch and workspace at spawn time and starts
-       you inside them. Confirm the task's `worktree` field matches (record it if it's
-       empty), then go to the dependency sync below.
+       orchestrator makes the worktree and branch at spawn time and opens your tab
+       directly on them, inside the project's workspace. Confirm the task's `worktree`
+       field matches (record it if it's empty), then go to the dependency sync below.
      - **cwd doesn't match, but the directory exists on disk** (resuming after a
        restart — regardless of what the `worktree` field says; the disk is the source
        of truth, which also self-heals a crash between creating the worktree and
@@ -104,21 +104,25 @@ once it's linked, so you need NO env vars and NO relaunch.
      else's); otherwise runs a real `npm ci` there. Safe to call every cycle — it
      no-ops per project if `node_modules` is already here (resumed task) or this isn't
      an npm project. Check its output lists every project you expect.
-   - **(Herdr) Register yourself so you're findable and legible.** Do this every
-     cycle — it's idempotent, and it's what lets the orchestrator and the human find
-     you whether you were spawned or started by hand:
+   - **(Herdr) Register yourself, but only if nobody did it for you.** When the
+     orchestrator spawned you it already named your agent and labelled your tab, so
+     there is nothing to do — check before you write. When the human started you by
+     hand in a plain tab, both are missing and you must set them, because an agent
+     only has a name if someone set one:
      ```
+     herdr agent list          # find your pane; do you already have a "name"?
      herdr agent rename "$HERDR_PANE_ID" <lowercase letter>-<task id>
-     herdr tab rename "$HERDR_TAB_ID" "Agent<AGENT>"
+     herdr tab rename "$HERDR_TAB_ID" "Agent <AGENT> · <2-3 words about the task>"
      ```
      The agent name must match `[a-z][a-z0-9_-]{0,31}` and be unique among live
-     agents; `<letter>-<task id>` (e.g. `a-1304`) satisfies both. Without it Herdr
-     knows your pane but not your identity — an agent only has a name if someone set
-     one, so a hand-started worker is otherwise nameless.
-     **Never touch the workspace label.** In the human's sidebar the tab label is the
-     identity line at the top and the workspace label is the place line underneath;
-     the orchestrator already set the latter to the project name when it created this
-     workspace. Set the tab label, nothing else.
+     agents; `<letter>-<task id>` (e.g. `a-1304`) satisfies both. The tab label is the
+     top line of the human's sidebar row — the letter first because that's how he
+     addresses you, then 2-3 words distilled from the task title (not the whole
+     title), the lot under ~26 characters or it gets clipped.
+     **Never touch the workspace label.** You are a tab inside the project's own
+     workspace, and that workspace's label is what tells the human which project this
+     row belongs to. Renaming it breaks that for every agent in the project, not just
+     you. Set the tab label, nothing else.
      Set the tab label once and leave it — don't re-label it as you progress. Claude
      Code already writes a live terminal title that Herdr shows in the pane, so the
      label is stable identity and the terminal title is the live detail.
@@ -132,7 +136,8 @@ once it's linked, so you need NO env vars and NO relaunch.
    - **`queued`** → `orch claim --agent <AGENT> --json` to take it (→ `discussing`).
      Then:
      - `orch notify --msg "Agent <AGENT>: <title> — <context>" --title "Come discuss"`
-     - **(Herdr)** also raise it where the human actually is — in the workspace:
+     - **(Herdr)** also raise it where the human actually is — a desktop toast, next
+       to Herdr rather than on his phone:
        `herdr notification show "Agent <AGENT> needs you" --body "<title> — ready to brainstorm" --sound request`.
        Do the same when you report `blocked`. This is in addition to `orch notify`,
        not instead of it, and it's best-effort: a failed notification never blocks.

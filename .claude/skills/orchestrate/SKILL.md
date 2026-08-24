@@ -46,27 +46,28 @@ relaunch. `ORCH_PROJECT` still works as an override.
 
 ## (Herdr) Naming — labels are the dashboard
 
-The sidebar is the human's status board, so every label you set is UI. Follow this
-exactly; a workspace called `worktree-3` is worse than useless.
+Workers live as **tabs inside the project's own workspace**, never in a workspace of
+their own. That is not cosmetic: Herdr's agent sidebar sorts by workspace and has no
+notion of worktree parentage, so a worker given its own workspace shows up as a
+detached row with no visible link to its project. Same workspace = grouped, always.
 
-In the human's sidebar the **tab label is the identity line at the top** and the
-**workspace label is the path line at the bottom**. That split is his and it works —
-so put identity in the tab label and leave workspace labels alone.
+That also means the two sidebar lines write themselves — the tab label on top is the
+only thing you set, and the workspace label underneath is already the project name the
+human chose. **You never set or change a workspace label.**
 
 | Thing | Label | Example |
 |---|---|---|
-| Tab | `Agent<AGENT>` — matches the human's existing convention | `AgentA` |
-| Herdr agent name | `<lowercase letter>-<task id>` | `a-1304` |
-| Task workspace | the project name — the label of the human's own project workspace | `ProgettoContrattiAdesione` |
+| Tab | `Agent <LETTER> · <2-3 words about the task>` | `Agent C · dropdown portal` |
+| Herdr agent name | `<lowercase letter>-<task id>` | `c-169` |
+| Workspace | never touched — it is the human's project workspace | `be-digital-crm` |
 
-- **Always pass `--label` to `herdr worktree create`, set to the project name.** Left
-  to itself Herdr labels the workspace with the worktree directory name (`A-167`),
-  which just repeats the tab label and loses the project. Read the project name from
-  the workspace you are running in — that is the label the human already chose:
-  `herdr workspace get "$HERDR_WORKSPACE_ID"` → `.result.workspace.label` (fallback:
-  `herdr worktree list --cwd "$PWD"` → `.result.source.repo_name`).
-- Set it at creation and **never rename a workspace afterwards.** Together the two
-  lines read *who* on top and *where* underneath, which is the split the human wants.
+- **Derive the 2-3 words from the task title, don't paste it.** Titles are long
+  (`"FE-3: primitivo dropdown con portal, e il menu di riga smette di essere
+  ritagliato"`); the label is a row in a 26-column sidebar. Take the distinguishing
+  noun phrase — `dropdown portal` — and keep the whole label at ~26 characters or
+  under, or it gets clipped. The letter comes first because that is how the human
+  addresses the worker; the words come second because that is what tells him which
+  row to open.
 - **Don't keep a label in sync with progress.** Claude Code already writes a live
   terminal title (`◐ Login form`) that Herdr shows in the pane; the tab label is
   stable identity, the terminal title is live detail. Two moving labels is noise.
@@ -106,10 +107,24 @@ Phases: `setup` · `investigation` · `planning` · `awaiting_approval` ·
     finish; with an earlier phase it means the worker stopped mid-task and is waiting
     on the human.
   - `blocked` — Herdr recognized an approval or question dialog. **The orch DB cannot
-    see this**, and it is the single most useful thing Herdr adds here: a worker
-    parked on `awaiting_approval` and a worker frozen on a y/n prompt look identical
-    in `orch status`. Surface it by name immediately. Never answer it yourself.
-  - `unknown` — an agent is present but unclassified. Evidence of nothing.
+    see this**, and it is the most useful thing Herdr adds here: a worker parked on
+    `awaiting_approval` and a worker frozen on a y/n prompt look identical in
+    `orch status`. Surface it by name immediately. Never answer it yourself.
+    **`blocked` is a one-way signal.** For Claude Code, Herdr has no lifecycle hook —
+    it classifies state by pattern-matching the terminal title and the bottom of the
+    screen against a manifest it updates from herdr.dev, and an approval dialog whose
+    shape no rule matches falls back to **`idle`**. So `blocked` appearing is real;
+    `blocked` not appearing proves nothing. Never conclude "not blocked" from its
+    absence.
+  - `unknown` — Herdr sees an agent it can't classify. Rare for Claude Code in
+    practice; evidence of nothing when it does appear. (Beware: `unknown` on a *tab*
+    or *workspace* means something different — no agent in it at all. Read
+    `agent list`, not the rollups.)
+  - **no row at all** — the task's agent name is absent from `agent list`: that
+    session is gone, not idle. Say so plainly; it usually means the human closed the
+    pane or Claude exited. The orch DB will happily keep showing its last phase.
+  When a state looks wrong before you report it, `herdr agent explain <name>` shows
+  which rule fired and on what evidence. That is the whole diagnostic; don't guess.
   Fold this into the one-line-per-agent roll call; don't emit a second list.
 - **Read the structured fields, never the prose.** The `progress` object is
   authoritative; don't parse phases out of event messages.
@@ -187,12 +202,12 @@ The human names the agent/task that just finished (e.g. "agent A is done"). Act 
        The human sweeps leftover `.claude/worktrees/*` directories by hand once the
        relevant session is closed, then `git worktree prune` reconciles git's
        metadata.
-     - **(Herdr)** The worktree is also a workspace, so "directory in use" here means
-       the worker's pane is still alive — closing the workspace would kill it. Do not.
-       Once the human confirms that session is closed,
-       `herdr worktree list --cwd <worktree path>` gives the workspace id and
-       `herdr worktree remove --workspace <id>` removes checkout and workspace
-       together, replacing the plain `git worktree remove` above. Never `--force`.
+     - **(Herdr)** "directory in use" here means the worker's pane is still alive in
+       its tab — the worker is parked there by design. **Never close that tab**, even
+       though you created it: closing it kills the session and anything it still has
+       open. The human closes the tab when he's done with it, and sweeps the leftover
+       directory afterwards. `git worktree remove` above is the only cleanup you run;
+       there is no Herdr-side cleanup, because the worker never owned a workspace.
    - **Either way, this never blocks the task's `merged` status** — cleanup is disk
      hygiene, not correctness; the merge and tests already succeeded.
    - Tests fail after a clean/resolved merge → **restore `<defaultBranch>`:**
@@ -254,9 +269,13 @@ mailbox, and workers don't re-read it mid-cycle.
   ```
   MSYS_NO_PATHCONV=1 herdr agent prompt a-42 "<the message>" --wait --timeout 120000
   ```
-  Keep the `MSYS_NO_PATHCONV=1` prefix even when the message doesn't start with `/` —
-  it costs nothing and it is what stops Git Bash rewriting a leading `/` into a
-  Windows path (`/work B` → `C:/Program Files/Git/work B`).
+  The prefix is what stops Git Bash rewriting a leading `/` into a Windows path
+  (`/work B` → `C:/Program Files/Git/work B`). Only a leading `/` or `//` is affected:
+  slashes inside the message are safe, so `"look at src/auth/login.ts"` needs nothing.
+  **It is not a free habit — never put it on a command that passes `$PWD`**, which is
+  a POSIX path in Git Bash and only reaches Herdr correctly *because* conversion is
+  on. `MSYS_NO_PATHCONV=1 herdr worktree list --cwd "$PWD"` fails with
+  `not_git_worktree`. Prefix the prompt; nothing else.
   Propose the wording, get a yes, then send. Report back what the worker returned.
 - **Never answer a `blocked` dialog.** If `agent prompt` returns `agent_blocked`, or
   `agent get` shows `blocked`, stop: `agent read` the dialog, describe it to the
@@ -274,10 +293,13 @@ spawned before you touch anything.
 Pick the agent letter from your own context of which agents are currently active (you
 already track this from `orch status` and from talking to the human).
 
-### (Herdr) — one worktree workspace per task
+### (Herdr) — one tab per task, in this project's workspace
 
 You create the isolation here, at spawn time; the worker then finds itself already
-inside it and skips its own worktree step.
+inside it and skips its own worktree step. Two commands do it: `git` makes the
+worktree, Herdr opens a tab on it. **Do not use `herdr worktree create`** — it fuses
+worktree creation with making a separate workspace, and a worker in its own workspace
+is exactly the detached, un-groupable sidebar row the naming section rules out.
 
 1. **Compute the path and the name.** The worktree path is the same one `/work`
    computes, so both sides agree on any resume:
@@ -286,59 +308,56 @@ inside it and skips its own worktree step.
    `[a-z][a-z0-9_-]{0,31}` and be unique among live agents. Check `herdr agent list`
    for a collision first; if the name is taken, stop and report it rather than spawning
    a duplicate.
-2. **Create the worktree workspace** with the branch you pre-assigned in the kickoff,
+2. **Create the worktree with git**, on the branch you pre-assigned in the kickoff,
    based on the **local** `<defaultBranch>` from Preflight step 3 — not
-   `origin/<defaultBranch>`, which can lag it. Label it with the project name per the
-   naming section:
+   `origin/<defaultBranch>`, which can lag it:
    ```
-   herdr worktree create --cwd "$PWD" --branch <branch> --base <defaultBranch> --path <project root>/.claude/worktrees/<AGENT>-<task id> --label "<project name>" --no-focus
+   git -C <project root> worktree add -b <branch> <project root>/.claude/worktrees/<AGENT>-<task id> <defaultBranch>
    ```
-   **`--cwd "$PWD"` is REQUIRED — this is the flag that keeps parallel work safe.**
-   Without it Herdr resolves the source repo from the **UI-focused workspace**, not
-   from your process. So while the human is clicking around another project, you
-   silently create a worktree of *their* repo at *your* path: the directory exists, the
-   branch exists in the wrong repo, and the worker opens a checkout full of another
-   project's code. This is not hypothetical — it has happened, and it is invisible
-   until someone reads the files.
+   **`git -C <project root>` is what keeps parallel work safe.** It names the source
+   repo explicitly, from your own process. The Herdr equivalent has no such anchor:
+   `herdr worktree create` without `--cwd` resolves the source repo from the
+   **UI-focused workspace**, so while the human clicked around another project you
+   would silently create a worktree of *their* repo at *your* path — the directory
+   exists, the branch exists in the wrong repo, and the worker opens a checkout full of
+   another project's code, invisible until someone reads the files. That has happened.
+   Using `git` directly removes the failure mode instead of guarding against it.
 
-   Read the workspace and its root pane out of the JSON response — never guess IDs.
-   `--no-focus` keeps the human where they are. Then set the tab label, which is the
-   identity line in his sidebar:
+   If the command fails (branch already exists, path occupied, dirty index), stop and
+   report it. Do not retry with `--force` and do not improvise a different path.
+3. **Open a tab on it, in the workspace you are already in:**
    ```
-   herdr tab rename <tab id from the response> "Agent<AGENT>"
+   herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd <that worktree path> --label "Agent <LETTER> · <2-3 words>" --no-focus
    ```
-3. **Verify the worktree belongs to THIS repo — before anything runs in it.** The flag
-   above is a rule you can forget; this check is what actually catches it:
-   ```
-   git -C <that path> rev-parse --path-format=absolute --git-common-dir
-   ```
-   It must print `<project root>/.git`. Anything else means you created a worktree of
-   a different project. If it mismatches, **do not start an agent and do not record
-   the path**. Remove it using the repo that actually owns it —
-   `git -C <the repo it named> worktree remove <that path>` — close the workspace you
-   just created, tell the human what happened, and stop. Do not retry blindly; a
-   second attempt with the human still focused elsewhere fails the same way.
-4. **Record it**, now that it's verified:
-   `orch task update --task <id> --worktree <that path>`.
+   `--workspace "$HERDR_WORKSPACE_ID"` is required — omitted, `tab create` targets the
+   UI-focused workspace, which may be another project entirely. `--no-focus` keeps the
+   human where he is. The label is the sidebar identity line; see the naming section
+   for how to pick the words. Read the root pane id from `.result.root_pane` in the
+   JSON response — never guess IDs.
+4. **Record it:** `orch task update --task <id> --worktree <that path>`.
+   The worker re-verifies the checkout before it writes any code, so there is no
+   separate verification step for you to run here.
 5. **Start the agent** in that root pane:
    ```
-   herdr agent start <name> --kind claude --pane <root pane id>
+   herdr agent start <name> --kind claude --pane <root pane id> --timeout 120000
    ```
-   If it returns `agent_not_ready` the agent came up blocked during startup —
-   `agent read` it, tell the human, and do not prompt it.
-6. **Send the first prompt.** The `MSYS_NO_PATHCONV=1` prefix is REQUIRED, not
-   optional: through Git Bash (the Bash tool on Windows) any argument starting with
-   `/` is rewritten into a Windows path, so `/work B` silently arrives at the worker
-   as `C:/Program Files/Git/work B`.
+   The default startup timeout is 30s, which a cold Claude Code with MCP servers
+   attached can exceed — hence the explicit `--timeout`. If it returns
+   `agent_not_ready` the agent came up blocked during startup: `agent read` it, tell
+   the human, and do not prompt it.
+6. **Send the first prompt.** The `MSYS_NO_PATHCONV=1` prefix is REQUIRED **here**,
+   because the prompt starts with `/`: through Git Bash (the Bash tool on Windows) an
+   argument with a leading `/` is rewritten into a Windows path, so `/work B` silently
+   arrives at the worker as `C:/Program Files/Git/work B`.
    ```
    MSYS_NO_PATHCONV=1 herdr agent prompt <name> "/work <letter>" --wait --timeout 120000
    ```
    The worker looks up its own task via `orch next --agent <letter>`, so you pass no
    branch and no task id through the prompt.
-7. **Report** `{tab label, agent name, workspace id, pane id, worktree path, branch}`
-   to the human — lead with the tab label, since that's the row they'll look for in
-   the sidebar — and say the worker will stop at its discussion gate and wait for them
-   there. Then stop; do not sit and poll it.
+7. **Report** `{tab label, agent name, tab id, pane id, worktree path, branch}` to the
+   human — lead with the tab label, since that's the row he'll look for in the sidebar,
+   grouped under this project — and say the worker will stop at its discussion gate and
+   wait for him there. Then stop; do not sit and poll it.
 
 ### (non-Herdr) — background session
 
