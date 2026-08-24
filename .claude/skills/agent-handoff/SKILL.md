@@ -77,9 +77,13 @@ Derive a short descriptive one from the work (`auth-refactor`, `flaky-tests`) an
 spawning a duplicate.
 
 **Labels.** In Mattia's sidebar the **tab label is the identity line at the top** and
-the **workspace label is the path line at the bottom**. So give the tab a short
+the **workspace label is the place line at the bottom**. So give the tab a short
 human-readable name for the work — Title Case, a few words, not the kebab agent name
-(`Auth refactor`, not `auth-refactor`) — and never set or change a workspace label.
+(`Auth refactor`, not `auth-refactor`). Never rename an existing workspace. When you
+create one (path b), label it with the project name, which is the label of the
+workspace you are running in: `herdr workspace get "$HERDR_WORKSPACE_ID"` →
+`.result.workspace.label`. Left to itself Herdr would label it with the worktree
+directory name, which just repeats the tab.
 
 ### a. New tab in this workspace
 
@@ -92,12 +96,24 @@ Read the root pane id from `.result.root_pane` in the JSON response — never gu
 ### b. New worktree with its own tab
 
 Ask for the branch name if it isn't obvious from the work; base it on the current
-branch unless told otherwise. No `--label` — let Herdr default the workspace to the
-path:
+branch unless told otherwise.
 
 ```
-herdr worktree create --branch <branch> --path <repo root>/.claude/worktrees/<name> --no-focus
+herdr worktree create --cwd "$PWD" --branch <branch> --path <repo root>/.claude/worktrees/<name> --label "<project name>" --no-focus
 ```
+
+**`--cwd "$PWD"` is REQUIRED.** Without it Herdr resolves the source repo from the
+UI-focused workspace rather than from your process, so if Mattia is looking at another
+project you create a worktree of *that* repo at *this* path — silently. Then check it
+before starting anything in it:
+
+```
+git -C <that path> rev-parse --path-format=absolute --git-common-dir
+```
+
+It must print `<repo root>/.git`. If it names a different repo, remove it with
+`git -C <the repo it named> worktree remove <that path>`, close the workspace you
+created, and tell Mattia — don't start an agent on it.
 
 Read the workspace, tab and root pane out of the JSON response, then label the tab:
 
@@ -116,9 +132,12 @@ If the repo doesn't already gitignore `.claude/worktrees/`, mention it.
    Ask which `--kind` if Mattia wants something other than `claude` (`herdr agent start
    --help` lists the installed kinds). If it returns `agent_not_ready` the agent came
    up blocked during startup — `agent read` it and report; do not prompt it.
-2. **Send the prompt:**
+2. **Send the prompt.** The `MSYS_NO_PATHCONV=1` prefix is REQUIRED, for the same
+   reason it is on `claude --bg` in Path 1: through Git Bash any argument starting
+   with `/` is rewritten into a Windows path, so a slash-command prompt like `/work B`
+   would arrive as `C:/Program Files/Git/work B`.
    ```
-   herdr agent prompt <name> "<prompt>" --wait --timeout 120000
+   MSYS_NO_PATHCONV=1 herdr agent prompt <name> "<prompt>" --wait --timeout 120000
    ```
    If it returns `agent_blocked` the agent is sitting on a dialog: read it, describe
    it, and let Mattia answer. Never answer it yourself.

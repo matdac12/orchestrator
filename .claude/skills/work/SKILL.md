@@ -84,6 +84,17 @@ once it's linked, so you need NO env vars and NO relaunch.
      `/report blocked <why>` and stop. Do not fall back to working in the shared
      checkout — that would silently drop every isolation guarantee, including the
      possibility of committing straight to `main`.
+   - **Confirm this worktree really belongs to THIS project** — before you sync deps
+     or write a line of code. It is cheap, and it is the only thing standing between
+     you and hours spent in another project's code:
+     ```
+     git -C "$PWD" rev-parse --path-format=absolute --git-common-dir
+     ```
+     It must print `<project root>/.git`. If it names a *different* repo, the worktree
+     was created against the wrong project — the directory sits at your path but the
+     code inside belongs to someone else's repo, and your branch doesn't exist where
+     you think it does. `/report blocked wrong repo: worktree points at <what it
+     printed>` and stop. Do not try to repair it yourself, and do not work in it.
    - **Sync dependencies fast:** `python <path>/orch.py deps`. Covers every npm project
      in the tree, not just the top level — `package.json` often lives in `app/` or one
      per workspace, and a worktree missing those `node_modules` can't build or test.
@@ -105,9 +116,9 @@ once it's linked, so you need NO env vars and NO relaunch.
      knows your pane but not your identity — an agent only has a name if someone set
      one, so a hand-started worker is otherwise nameless.
      **Never touch the workspace label.** In the human's sidebar the tab label is the
-     identity line at the top and the workspace label is the path line at the bottom;
-     both are his, and the workspace one must keep showing the path. Set the tab
-     label, nothing else.
+     identity line at the top and the workspace label is the place line underneath;
+     the orchestrator already set the latter to the project name when it created this
+     workspace. Set the tab label, nothing else.
      Set the tab label once and leave it — don't re-label it as you progress. Claude
      Code already writes a live terminal title that Herdr shows in the pane, so the
      label is stable identity and the terminal title is the live detail.

@@ -57,11 +57,16 @@ so put identity in the tab label and leave workspace labels alone.
 |---|---|---|
 | Tab | `Agent<AGENT>` — matches the human's existing convention | `AgentA` |
 | Herdr agent name | `<lowercase letter>-<task id>` | `a-1304` |
-| Task workspace | **don't set one** — let Herdr default it to the path | |
+| Task workspace | the project name — the label of the human's own project workspace | `ProgettoContrattiAdesione` |
 
-- **Never pass `--label` to `herdr worktree create`, and never rename a workspace.**
-  The default keeps the bottom line showing the path, which is what the human reads
-  there.
+- **Always pass `--label` to `herdr worktree create`, set to the project name.** Left
+  to itself Herdr labels the workspace with the worktree directory name (`A-167`),
+  which just repeats the tab label and loses the project. Read the project name from
+  the workspace you are running in — that is the label the human already chose:
+  `herdr workspace get "$HERDR_WORKSPACE_ID"` → `.result.workspace.label` (fallback:
+  `herdr worktree list --cwd "$PWD"` → `.result.source.repo_name`).
+- Set it at creation and **never rename a workspace afterwards.** Together the two
+  lines read *who* on top and *where* underneath, which is the split the human wants.
 - **Don't keep a label in sync with progress.** Claude Code already writes a live
   terminal title (`◐ Login form`) that Herdr shows in the pane; the tab label is
   stable identity, the terminal title is live detail. Two moving labels is noise.
@@ -247,8 +252,11 @@ mailbox, and workers don't re-read it mid-cycle.
 - **Write only after the human tells you to**, and send exactly the message they
   approved:
   ```
-  herdr agent prompt a-42 "<the message>" --wait --timeout 120000
+  MSYS_NO_PATHCONV=1 herdr agent prompt a-42 "<the message>" --wait --timeout 120000
   ```
+  Keep the `MSYS_NO_PATHCONV=1` prefix even when the message doesn't start with `/` —
+  it costs nothing and it is what stops Git Bash rewriting a leading `/` into a
+  Windows path (`/work B` → `C:/Program Files/Git/work B`).
   Propose the wording, get a yes, then send. Report back what the worker returned.
 - **Never answer a `blocked` dialog.** If `agent prompt` returns `agent_blocked`, or
   `agent get` shows `blocked`, stop: `agent read` the dialog, describe it to the
@@ -280,31 +288,54 @@ inside it and skips its own worktree step.
    a duplicate.
 2. **Create the worktree workspace** with the branch you pre-assigned in the kickoff,
    based on the **local** `<defaultBranch>` from Preflight step 3 — not
-   `origin/<defaultBranch>`, which can lag it. No `--label` — see the naming section:
+   `origin/<defaultBranch>`, which can lag it. Label it with the project name per the
+   naming section:
    ```
-   herdr worktree create --branch <branch> --base <defaultBranch> --path <project root>/.claude/worktrees/<AGENT>-<task id> --no-focus
+   herdr worktree create --cwd "$PWD" --branch <branch> --base <defaultBranch> --path <project root>/.claude/worktrees/<AGENT>-<task id> --label "<project name>" --no-focus
    ```
+   **`--cwd "$PWD"` is REQUIRED — this is the flag that keeps parallel work safe.**
+   Without it Herdr resolves the source repo from the **UI-focused workspace**, not
+   from your process. So while the human is clicking around another project, you
+   silently create a worktree of *their* repo at *your* path: the directory exists, the
+   branch exists in the wrong repo, and the worker opens a checkout full of another
+   project's code. This is not hypothetical — it has happened, and it is invisible
+   until someone reads the files.
+
    Read the workspace and its root pane out of the JSON response — never guess IDs.
    `--no-focus` keeps the human where they are. Then set the tab label, which is the
    identity line in his sidebar:
    ```
    herdr tab rename <tab id from the response> "Agent<AGENT>"
    ```
-3. **Record it immediately**, before anything else runs in there:
+3. **Verify the worktree belongs to THIS repo — before anything runs in it.** The flag
+   above is a rule you can forget; this check is what actually catches it:
+   ```
+   git -C <that path> rev-parse --path-format=absolute --git-common-dir
+   ```
+   It must print `<project root>/.git`. Anything else means you created a worktree of
+   a different project. If it mismatches, **do not start an agent and do not record
+   the path**. Remove it using the repo that actually owns it —
+   `git -C <the repo it named> worktree remove <that path>` — close the workspace you
+   just created, tell the human what happened, and stop. Do not retry blindly; a
+   second attempt with the human still focused elsewhere fails the same way.
+4. **Record it**, now that it's verified:
    `orch task update --task <id> --worktree <that path>`.
-4. **Start the agent** in that root pane:
+5. **Start the agent** in that root pane:
    ```
    herdr agent start <name> --kind claude --pane <root pane id>
    ```
    If it returns `agent_not_ready` the agent came up blocked during startup —
    `agent read` it, tell the human, and do not prompt it.
-5. **Send the first prompt:**
+6. **Send the first prompt.** The `MSYS_NO_PATHCONV=1` prefix is REQUIRED, not
+   optional: through Git Bash (the Bash tool on Windows) any argument starting with
+   `/` is rewritten into a Windows path, so `/work B` silently arrives at the worker
+   as `C:/Program Files/Git/work B`.
    ```
-   herdr agent prompt <name> "/work <letter>" --wait --timeout 120000
+   MSYS_NO_PATHCONV=1 herdr agent prompt <name> "/work <letter>" --wait --timeout 120000
    ```
    The worker looks up its own task via `orch next --agent <letter>`, so you pass no
    branch and no task id through the prompt.
-6. **Report** `{tab label, agent name, workspace id, pane id, worktree path, branch}`
+7. **Report** `{tab label, agent name, workspace id, pane id, worktree path, branch}`
    to the human — lead with the tab label, since that's the row they'll look for in
    the sidebar — and say the worker will stop at its discussion gate and wait for them
    there. Then stop; do not sit and poll it.
