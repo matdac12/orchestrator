@@ -96,7 +96,7 @@ workspace.
 ### This checkout
 
 ```
-herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "<Work name>" --no-focus
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$(git rev-parse --show-toplevel)" --label "<Work name>" --no-focus
 ```
 
 ### Its own worktree
@@ -105,11 +105,23 @@ Ask for the branch name if it isn't obvious from the work; base it on the curren
 branch unless told otherwise. Make the worktree with `git`, then open a tab on it:
 
 ```
-git -C <repo root> worktree add -b <branch> <repo root>/.claude/worktrees/<name>
-herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd <repo root>/.claude/worktrees/<name> --label "<Work name>" --no-focus
+REPO="$(git rev-parse --show-toplevel)"
+git -C "$REPO" worktree add -b <branch> "$REPO/.claude/worktrees/<name>"
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$REPO/.claude/worktrees/<name>" --label "<Work name>" --no-focus
 ```
 
-**Use `git`, not `herdr worktree create`.** `git -C <repo root>` names the source repo
+**Take the repo root from `git rev-parse --show-toplevel`, never from `$PWD`.** On
+Windows a path can reach you with the wrong casing (`ProgettoCOntrattiAdesione` for a
+folder git knows as `ProgettoContrattiAdesione`) — the same folder, a different string.
+`rev-parse` returns git's canonical casing; PowerShell's `Resolve-Path` and `Get-Item`
+just echo whatever casing you handed them. Casing matters because Claude Code maps a
+worktree back to its main repo by comparing realpaths, and Node on Windows doesn't
+canonicalise case: one wrong letter and the mapping fails, the worktree counts as an
+unknown folder, and the new tab stalls on **"Do you trust the files in this folder?"**
+with nobody there to answer. Get the casing right and the worktree inherits the repo's
+trust silently.
+
+**Use `git`, not `herdr worktree create`.** `git -C "$REPO"` names the source repo
 explicitly, from your own process. `herdr worktree create` without `--cwd` resolves it
 from the **UI-focused workspace** instead, so if Mattia is looking at another project
 you silently create a worktree of *that* repo at *this* path — and it also puts the
