@@ -44,6 +44,29 @@ relaunch. `ORCH_PROJECT` still works as an override.
    as aliases of the same concept (see `orch/report.py:9` `DEFAULT_BRANCH_NAMES`);
    use `<defaultBranch>` everywhere below — never hardcode `main`.
 
+## (Herdr) Naming — labels are the dashboard
+
+The sidebar is the human's status board, so every label you set is UI. Follow this
+exactly; a workspace called `worktree-3` is worse than useless.
+
+In the human's sidebar the **tab label is the identity line at the top** and the
+**workspace label is the path line at the bottom**. That split is his and it works —
+so put identity in the tab label and leave workspace labels alone.
+
+| Thing | Label | Example |
+|---|---|---|
+| Tab | `Agent<AGENT>` — matches the human's existing convention | `AgentA` |
+| Herdr agent name | `<lowercase letter>-<task id>` | `a-1304` |
+| Task workspace | **don't set one** — let Herdr default it to the path | |
+
+- **Never pass `--label` to `herdr worktree create`, and never rename a workspace.**
+  The default keeps the bottom line showing the path, which is what the human reads
+  there.
+- **Don't keep a label in sync with progress.** Claude Code already writes a live
+  terminal title (`◐ Login form`) that Herdr shows in the pane; the tab label is
+  stable identity, the terminal title is live detail. Two moving labels is noise.
+- **Never rename or close a workspace, tab or pane you did not create.**
+
 ## Reading worker progress
 
 Workers report what they are doing through `orch progress`. Every task in
@@ -66,8 +89,13 @@ Phases: `setup` · `investigation` · `planning` · `awaiting_approval` ·
   human learns how much work is left without asking each window.
 - **(Herdr) Cross-check liveness with `herdr agent list`.** `orch progress` tells you
   what a worker *thinks* it is doing; Herdr tells you whether it is actually moving.
-  Match each worker by its Herdr agent name (`<lowercase letter>-<task id>`, e.g.
-  `a-42`) and read `agent_status`:
+  **Resolve each worker by `cwd`, not by name.** Herdr only knows an agent's name if
+  someone set one, so a worker the human started by hand in a plain pane has none —
+  but every worker's `cwd` is its task's worktree, which the DB already records in the
+  task's `worktree` field. Match on that (normalize first: `agent list` returns
+  Windows paths with `\` separators, the DB field uses `/`). Fall back to the agent
+  name `<lowercase letter>-<task id>` (e.g. `a-42`) when it's present. Then read
+  `agent_status`:
   - `working` — running. Trust the orch progress line.
   - `idle` / `done` — its turn ended. With `status=done` in the DB that's a real
     finish; with an earlier phase it means the worker stopped mid-task and is waiting
@@ -252,12 +280,16 @@ inside it and skips its own worktree step.
    a duplicate.
 2. **Create the worktree workspace** with the branch you pre-assigned in the kickoff,
    based on the **local** `<defaultBranch>` from Preflight step 3 — not
-   `origin/<defaultBranch>`, which can lag it:
+   `origin/<defaultBranch>`, which can lag it. No `--label` — see the naming section:
    ```
-   herdr worktree create --branch <branch> --base <defaultBranch> --path <project root>/.claude/worktrees/<AGENT>-<task id> --label "<AGENT> · <issue or title>" --no-focus
+   herdr worktree create --branch <branch> --base <defaultBranch> --path <project root>/.claude/worktrees/<AGENT>-<task id> --no-focus
    ```
    Read the workspace and its root pane out of the JSON response — never guess IDs.
-   `--no-focus` keeps the human where they are.
+   `--no-focus` keeps the human where they are. Then set the tab label, which is the
+   identity line in his sidebar:
+   ```
+   herdr tab rename <tab id from the response> "Agent<AGENT>"
+   ```
 3. **Record it immediately**, before anything else runs in there:
    `orch task update --task <id> --worktree <that path>`.
 4. **Start the agent** in that root pane:
@@ -272,9 +304,10 @@ inside it and skips its own worktree step.
    ```
    The worker looks up its own task via `orch next --agent <letter>`, so you pass no
    branch and no task id through the prompt.
-6. **Report** `{agent name, workspace id, pane id, worktree path, branch}` to the
-   human, and say that the worker will stop at its discussion gate and wait for them
-   there. Then stop — do not sit and poll it.
+6. **Report** `{tab label, agent name, workspace id, pane id, worktree path, branch}`
+   to the human — lead with the tab label, since that's the row they'll look for in
+   the sidebar — and say the worker will stop at its discussion gate and wait for them
+   there. Then stop; do not sit and poll it.
 
 ### (non-Herdr) — background session
 

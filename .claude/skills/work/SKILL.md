@@ -97,6 +97,26 @@ once it's linked, so you need NO env vars and NO relaunch.
      else's); otherwise runs a real `npm ci` there. Safe to call every cycle — it
      no-ops per project if `node_modules` is already here (resumed task) or this isn't
      an npm project. Check its output lists every project you expect.
+   - **(Herdr) Register yourself so you're findable and legible.** Do this every
+     cycle — it's idempotent, and it's what lets the orchestrator and the human find
+     you whether you were spawned or started by hand:
+     ```
+     herdr agent rename "$HERDR_PANE_ID" <lowercase letter>-<task id>
+     herdr tab rename "$HERDR_TAB_ID" "Agent<AGENT>"
+     ```
+     The agent name must match `[a-z][a-z0-9_-]{0,31}` and be unique among live
+     agents; `<letter>-<task id>` (e.g. `a-1304`) satisfies both. Without it Herdr
+     knows your pane but not your identity — an agent only has a name if someone set
+     one, so a hand-started worker is otherwise nameless.
+     **Never touch the workspace label.** In the human's sidebar the tab label is the
+     identity line at the top and the workspace label is the path line at the bottom;
+     both are his, and the workspace one must keep showing the path. Set the tab
+     label, nothing else.
+     Set the tab label once and leave it — don't re-label it as you progress. Claude
+     Code already writes a live terminal title that Herdr shows in the pane, so the
+     label is stable identity and the terminal title is the live detail.
+     This is display only: if a rename fails, note it and carry on — never block the
+     task on it.
    - **Report progress:**
      `python <path>/orch.py progress --agent <AGENT> --phase setup --msg "worktree ready, deps synced"`
 
@@ -105,6 +125,10 @@ once it's linked, so you need NO env vars and NO relaunch.
    - **`queued`** → `orch claim --agent <AGENT> --json` to take it (→ `discussing`).
      Then:
      - `orch notify --msg "Agent <AGENT>: <title> — <context>" --title "Come discuss"`
+     - **(Herdr)** also raise it where the human actually is — in the workspace:
+       `herdr notification show "Agent <AGENT> needs you" --body "<title> — ready to brainstorm" --sound request`.
+       Do the same when you report `blocked`. This is in addition to `orch notify`,
+       not instead of it, and it's best-effort: a failed notification never blocks.
      - Post the signal: `orch post --agent <AGENT> --kind needs_discussion --msg "claimed, awaiting brainstorm"` (this specific kind has no /report alias; use it as-is). This raises the `needs_human` flag so the human's `orch status` shows you under "WAITING ON YOU".
      - **Investigation-first for dated/old issues.** If the issue is not freshly
        written (it references work that may already be underway or shipped — drift

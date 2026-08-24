@@ -71,15 +71,20 @@ agent.
 Takes the same two things as Path 1 — a **name** and a **prompt** — plus the placement
 chosen in Step 0. Nothing else: no notion of orchestrators, tasks, branches or tickets.
 
-The name must match `[a-z][a-z0-9_-]{0,31}` and be unique among live agents. Derive a
-short descriptive one from the work (`auth-refactor`, `flaky-tests`) and check
+The agent name must match `[a-z][a-z0-9_-]{0,31}` and be unique among live agents.
+Derive a short descriptive one from the work (`auth-refactor`, `flaky-tests`) and check
 `herdr agent list` for a collision first — if it's taken, pick another rather than
 spawning a duplicate.
+
+**Labels.** In Mattia's sidebar the **tab label is the identity line at the top** and
+the **workspace label is the path line at the bottom**. So give the tab a short
+human-readable name for the work — Title Case, a few words, not the kebab agent name
+(`Auth refactor`, not `auth-refactor`) — and never set or change a workspace label.
 
 ### a. New tab in this workspace
 
 ```
-herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "<name>" --no-focus
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "<Work name>" --no-focus
 ```
 
 Read the root pane id from `.result.root_pane` in the JSON response — never guess IDs.
@@ -87,14 +92,20 @@ Read the root pane id from `.result.root_pane` in the JSON response — never gu
 ### b. New worktree with its own tab
 
 Ask for the branch name if it isn't obvious from the work; base it on the current
-branch unless told otherwise.
+branch unless told otherwise. No `--label` — let Herdr default the workspace to the
+path:
 
 ```
-herdr worktree create --branch <branch> --path <repo root>/.claude/worktrees/<name> --label "<name>" --no-focus
+herdr worktree create --branch <branch> --path <repo root>/.claude/worktrees/<name> --no-focus
 ```
 
-Read the workspace and root pane out of the JSON response. If the repo doesn't already
-gitignore `.claude/worktrees/`, mention it.
+Read the workspace, tab and root pane out of the JSON response, then label the tab:
+
+```
+herdr tab rename <tab id from the response> "<Work name>"
+```
+
+If the repo doesn't already gitignore `.claude/worktrees/`, mention it.
 
 ### Then, either way
 
@@ -111,12 +122,13 @@ gitignore `.claude/worktrees/`, mention it.
    ```
    If it returns `agent_blocked` the agent is sitting on a dialog: read it, describe
    it, and let Mattia answer. Never answer it yourself.
-3. **Report** `{name, workspace id, tab id, pane id, cwd, branch}` and how to reach it
-   (`herdr agent read <name>`, or just click the tab). `--no-focus` throughout means
-   his focus never moved — say so.
+3. **Report** `{tab label, name, workspace id, tab id, pane id, cwd, branch}` and how
+   to reach it (`herdr agent read <name>`, or just click the tab). Lead with the tab
+   label — that's the row he'll look for. `--no-focus` throughout means his focus never
+   moved; say so.
 
-Never `--focus` unless he asked to switch context, and never close a pane, tab or
-workspace you didn't create.
+Never `--focus` unless he asked to switch context, and never rename or close a pane,
+tab or workspace you didn't create.
 
 ---
 
