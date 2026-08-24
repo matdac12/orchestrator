@@ -33,9 +33,10 @@ stops to ask a human — so a worker that dropped its flag would stall the whole
 waiting for someone who isn't there, then write to Linear, which is the orchestrator's
 job. Before accepting solo mode, check for worker evidence: you are inside a
 `<project root>/.claude/worktrees/<AGENT>-<task id>` worktree, or this session began
-with `/work`. If either is true and there's no `--agent` flag, **stop and recover the
-letter** — it's in your `/work` invocation, in the worktree directory name, or from
-`orch next` — rather than proceeding in either mode.
+with `/work`. If either is true and there's no `--agent` flag, **recover the letter and
+run orchestrated** rather than proceeding in either mode. It is in your `/work`
+invocation, which is right there in this conversation; if the session was restarted and
+it isn't, the worktree directory name has it.
 
 ## Operator context — read the rest of the invocation
 
@@ -66,9 +67,9 @@ Resolve `BASE_SHA` in this order:
    `git merge-base HEAD origin/<default-branch>`. No remote? Use the local default
    branch instead.
 2. **On the default branch** (common in solo mode): the parent of the first commit
-   you made this session. Don't do this from memory — memory is the first thing lost
-   to compaction or a resumed session. Run `git log --oneline -15` and pick the
-   boundary from what's actually there.
+   you made this session. Don't do this from recall — it is easy to misremember which
+   commit was the boundary, and git is authoritative. Run `git log --oneline -15` and
+   pick the boundary from what's actually there.
 3. **Can't tell → ask, don't guess.** Solo mode: ask Mattia which commit to review
    from, in one line. Orchestrated mode: fall back to the branch point and note the
    assumption.

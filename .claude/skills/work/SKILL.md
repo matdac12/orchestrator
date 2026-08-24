@@ -24,8 +24,8 @@ once it's linked, so you need NO env vars and NO relaunch.
 ## Preflight (run once, at the start — do NOT skip)
 
 0. **Detect the environment.** Run `test "${HERDR_ENV:-}" = 1 && echo herdr`. If it
-   prints `herdr` you are in a Herdr-managed pane and the **(Herdr)** branch in step 2
-   applies. Otherwise ignore it. Decide once; don't re-check per command.
+   prints `herdr` you are in a Herdr-managed pane and the steps marked **(Herdr)**
+   below apply. Otherwise ignore them. Decide once; don't re-check per command.
 1. **Confirm the directory.** Run `pwd` (and `git remote -v`). You must be inside the
    target project's checkout (where the code you build lives), NOT the orchestrator
    repo. If it looks wrong, stop and tell the human.
@@ -48,24 +48,19 @@ once it's linked, so you need NO env vars and NO relaunch.
    worktree path: `<project root>/.claude/worktrees/<AGENT>-<task id>` — always the
    same for a given task, so you can recompute it on any resume without trusting a
    possibly-stale DB field.
-   - **(Herdr) The orchestrator may already have placed you here.** In Herdr it creates
-     the worktree, the branch and the workspace at spawn time and starts you inside
-     them. So if your cwd is already that exact path, **create nothing** — confirm the
-     task's `worktree` field matches (record it if empty), then go straight to the
-     dependency sync below and on to step 3. If you're in Herdr but *not* at that path
-     (the human started you by hand in a plain pane), use the normal creation path
-     below — `git worktree add` works fine inside Herdr, and so does `EnterWorktree`.
-   - **Already there?** Compare your cwd to that *exact* path — not just "am I in some
-     worktree." A stale worktree left over from a *previous* task would pass a looser
-     check; comparing the exact path catches that. If they match, skip creation — go
-     straight to the dependency sync below, then step 3.
-   - **Directory already exists at the computed path** (resuming after a restart —
-     regardless of whether the task's `worktree` field agrees; the directory on disk
-     is the source of truth, not the field, so this also self-heals a crash between
-     creating the worktree and recording it, or the field pointing at a path that's
-     since been pruned/deleted) → re-enter it: `EnterWorktree` with `path: <that path>`
-     (or plain `cd <that path>` if the tool isn't available). If the `worktree` field
-     doesn't already match, record it now (see below).
+   - **Are you already in it?** Compare your cwd to that *exact* path — not just "am I
+     in some worktree." A stale worktree left over from a *previous* task would pass a
+     looser check; the exact comparison catches that. Two outcomes:
+     - **cwd matches** → create nothing. In Herdr this is the normal case: the
+       orchestrator makes the worktree, branch and workspace at spawn time and starts
+       you inside them. Confirm the task's `worktree` field matches (record it if it's
+       empty), then go to the dependency sync below.
+     - **cwd doesn't match, but the directory exists on disk** (resuming after a
+       restart — regardless of what the `worktree` field says; the disk is the source
+       of truth, which also self-heals a crash between creating the worktree and
+       recording it, or a field pointing somewhere since pruned) → re-enter it:
+       `EnterWorktree` with `path: <that path>`, or plain `cd <that path>` if the tool
+       isn't available. Record the field now if it doesn't already match.
    - **Directory doesn't exist yet** (fresh claim, or the field pointed at a path
      that's gone) **→ create it at the computed path.** Skip `using-git-worktrees`'s
      human-consent gate — you're unattended, and the human already opted in by using
@@ -82,12 +77,13 @@ once it's linked, so you need NO env vars and NO relaunch.
      instead — same destination, bases off local HEAD with no setting needed. Either
      way, immediately record it — before doing anything else in the worktree:
      `python <path>/orch.py task update --task <id> --worktree <that path>`.
+     First time in this project, if it doesn't already gitignore `.claude/worktrees/`,
+     mention that to the human — worktrees under it are transient and shouldn't be
+     tracked.
    - **Creation fails for any reason** (e.g. a sandboxed environment denies it) →
      `/report blocked <why>` and stop. Do not fall back to working in the shared
      checkout — that would silently drop every isolation guarantee, including the
      possibility of committing straight to `main`.
-   - If this project doesn't already gitignore `.claude/worktrees/`, mention it to the
-     human — worktrees under it are transient and shouldn't be tracked.
    - **Sync dependencies fast:** `python <path>/orch.py deps`. Covers every npm project
      in the tree, not just the top level — `package.json` often lives in `app/` or one
      per workspace, and a worktree missing those `node_modules` can't build or test.
