@@ -23,6 +23,9 @@ once it's linked, so you need NO env vars and NO relaunch.
 
 ## Preflight (run once, at the start — do NOT skip)
 
+0. **Detect the environment.** Run `test "${HERDR_ENV:-}" = 1 && echo herdr`. If it
+   prints `herdr` you are in a Herdr-managed pane and the **(Herdr)** branch in step 2
+   applies. Otherwise ignore it. Decide once; don't re-check per command.
 1. **Confirm the directory.** Run `pwd` (and `git remote -v`). You must be inside the
    target project's checkout (where the code you build lives), NOT the orchestrator
    repo. If it looks wrong, stop and tell the human.
@@ -45,9 +48,17 @@ once it's linked, so you need NO env vars and NO relaunch.
    worktree path: `<project root>/.claude/worktrees/<AGENT>-<task id>` — always the
    same for a given task, so you can recompute it on any resume without trusting a
    possibly-stale DB field.
+   - **(Herdr) The orchestrator may already have placed you here.** In Herdr it creates
+     the worktree, the branch and the workspace at spawn time and starts you inside
+     them. So if your cwd is already that exact path, **create nothing** — confirm the
+     task's `worktree` field matches (record it if empty), then go straight to the
+     dependency sync below and on to step 3. If you're in Herdr but *not* at that path
+     (the human started you by hand in a plain pane), use the normal creation path
+     below — `git worktree add` works fine inside Herdr, and so does `EnterWorktree`.
    - **Already there?** Compare your cwd to that *exact* path — not just "am I in some
      worktree." A stale worktree left over from a *previous* task would pass a looser
-     check; comparing the exact path catches that. If they match, skip to step 3.
+     check; comparing the exact path catches that. If they match, skip creation — go
+     straight to the dependency sync below, then step 3.
    - **Directory already exists at the computed path** (resuming after a restart —
      regardless of whether the task's `worktree` field agrees; the directory on disk
      is the source of truth, not the field, so this also self-heals a crash between

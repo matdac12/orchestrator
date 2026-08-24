@@ -21,6 +21,11 @@ relaunch. `ORCH_PROJECT` still works as an override.
 
 ## Preflight (run once, at the start — do NOT skip)
 
+0. **Detect the environment.** Run `test "${HERDR_ENV:-}" = 1 && echo herdr`. If it
+   prints `herdr`, you are inside a Herdr-managed pane: every section below marked
+   **(Herdr)** replaces its non-Herdr counterpart. If it prints nothing, ignore those
+   sections entirely and use the classic path. Decide this once and remember it — do
+   not re-check per command.
 1. **Confirm the directory.** Run `pwd` / `git remote -v`. Because you merge `done`
    branches into the default branch, this window MUST be inside the **target
    project's** git checkout — not the orchestrator repo. If it looks wrong, stop
@@ -59,6 +64,20 @@ Phases: `setup` · `investigation` · `planning` · `awaiting_approval` ·
   `orch status --json` and give the human one line per active agent from these
   snapshots — phase, `N/total` where present, and the message. This is how the
   human learns how much work is left without asking each window.
+- **(Herdr) Cross-check liveness with `herdr agent list`.** `orch progress` tells you
+  what a worker *thinks* it is doing; Herdr tells you whether it is actually moving.
+  Match each worker by its Herdr agent name (`<lowercase letter>-<task id>`, e.g.
+  `a-42`) and read `agent_status`:
+  - `working` — running. Trust the orch progress line.
+  - `idle` / `done` — its turn ended. With `status=done` in the DB that's a real
+    finish; with an earlier phase it means the worker stopped mid-task and is waiting
+    on the human.
+  - `blocked` — Herdr recognized an approval or question dialog. **The orch DB cannot
+    see this**, and it is the single most useful thing Herdr adds here: a worker
+    parked on `awaiting_approval` and a worker frozen on a y/n prompt look identical
+    in `orch status`. Surface it by name immediately. Never answer it yourself.
+  - `unknown` — an agent is present but unclassified. Evidence of nothing.
+  Fold this into the one-line-per-agent roll call; don't emit a second list.
 - **Read the structured fields, never the prose.** The `progress` object is
   authoritative; don't parse phases out of event messages.
 - **A late phase is NOT a merge signal.** `phase=checkpoint` means the worker is
@@ -135,6 +154,12 @@ The human names the agent/task that just finished (e.g. "agent A is done"). Act 
        The human sweeps leftover `.claude/worktrees/*` directories by hand once the
        relevant session is closed, then `git worktree prune` reconciles git's
        metadata.
+     - **(Herdr)** The worktree is also a workspace, so "directory in use" here means
+       the worker's pane is still alive — closing the workspace would kill it. Do not.
+       Once the human confirms that session is closed,
+       `herdr worktree list --cwd <worktree path>` gives the workspace id and
+       `herdr worktree remove --workspace <id>` removes checkout and workspace
+       together, replacing the plain `git worktree remove` above. Never `--force`.
    - **Either way, this never blocks the task's `merged` status** — cleanup is disk
      hygiene, not correctness; the merge and tests already succeeded.
    - Tests fail after a clean/resolved merge → **restore `<defaultBranch>`:**
@@ -174,16 +199,87 @@ a finished branch, do this instead of (or after) a merge pass.
   `orch notify --msg "Agents idle, nothing queued — what's next?" --title "Orchestrator needs input"`
   and wait, rather than inventing work.
 
+## Talking to a worker (Herdr)
+
+Herdr gives you a direct channel to a running worker. Use it instead of
+`orch task update --context` for relaying a message — that field is task state, not a
+mailbox, and workers don't re-read it mid-cycle.
+
+**Reading is free. Writing needs the human's explicit consent, every single time.**
+
+- **Read** when it helps you answer the human — a stale phase, an unexplained
+  blocker, a worker that went `idle` early:
+  ```
+  herdr agent get a-42
+  herdr agent read a-42 --source recent-unwrapped --lines 120
+  ```
+  Read *carefully*, and quote what you actually saw rather than paraphrasing it into a
+  diagnosis. Most cycles `orch status --json` already told you everything — reach for
+  `agent read` when it didn't, not by reflex.
+- **Write only after the human tells you to**, and send exactly the message they
+  approved:
+  ```
+  herdr agent prompt a-42 "<the message>" --wait --timeout 120000
+  ```
+  Propose the wording, get a yes, then send. Report back what the worker returned.
+- **Never answer a `blocked` dialog.** If `agent prompt` returns `agent_blocked`, or
+  `agent get` shows `blocked`, stop: `agent read` the dialog, describe it to the
+  human, let them answer. Approving a permission prompt or a plan on their behalf is
+  out of bounds no matter how obvious the answer looks.
+- Never `send-keys` to, close, or restart a worker's pane.
+
 ## Delegating to a background agent (optional)
 
-After queuing a kickoff, you can hand it to a background session instead of waiting
-for the human to open a pane and start it by hand — but only when the human says so;
-never spawn one unasked (they may be driving panes themselves this cycle).
+After queuing a kickoff, you can start the worker yourself instead of waiting for the
+human to open a pane by hand — but **only when the human says so**; never spawn one
+unasked (they may be driving panes themselves this cycle). Ask how they want it
+spawned before you touch anything.
 
-1. Pick the agent letter from your own context of which agents are currently active
-   (you already track this by talking to the human and reading `orch status`).
-   `claude agents --json` is there as an optional cross-check if you want extra
-   certainty, not a required step.
+Pick the agent letter from your own context of which agents are currently active (you
+already track this from `orch status` and from talking to the human).
+
+### (Herdr) — one worktree workspace per task
+
+You create the isolation here, at spawn time; the worker then finds itself already
+inside it and skips its own worktree step.
+
+1. **Compute the path and the name.** The worktree path is the same one `/work`
+   computes, so both sides agree on any resume:
+   `<project root>/.claude/worktrees/<AGENT>-<task id>`.
+   The Herdr agent name is `<lowercase letter>-<task id>` (e.g. `a-42`) — it must match
+   `[a-z][a-z0-9_-]{0,31}` and be unique among live agents. Check `herdr agent list`
+   for a collision first; if the name is taken, stop and report it rather than spawning
+   a duplicate.
+2. **Create the worktree workspace** with the branch you pre-assigned in the kickoff,
+   based on the **local** `<defaultBranch>` from Preflight step 3 — not
+   `origin/<defaultBranch>`, which can lag it:
+   ```
+   herdr worktree create --branch <branch> --base <defaultBranch> --path <project root>/.claude/worktrees/<AGENT>-<task id> --label "<AGENT> · <issue or title>" --no-focus
+   ```
+   Read the workspace and its root pane out of the JSON response — never guess IDs.
+   `--no-focus` keeps the human where they are.
+3. **Record it immediately**, before anything else runs in there:
+   `orch task update --task <id> --worktree <that path>`.
+4. **Start the agent** in that root pane:
+   ```
+   herdr agent start <name> --kind claude --pane <root pane id>
+   ```
+   If it returns `agent_not_ready` the agent came up blocked during startup —
+   `agent read` it, tell the human, and do not prompt it.
+5. **Send the first prompt:**
+   ```
+   herdr agent prompt <name> "/work <letter>" --wait --timeout 120000
+   ```
+   The worker looks up its own task via `orch next --agent <letter>`, so you pass no
+   branch and no task id through the prompt.
+6. **Report** `{agent name, workspace id, pane id, worktree path, branch}` to the
+   human, and say that the worker will stop at its discussion gate and wait for them
+   there. Then stop — do not sit and poll it.
+
+### (non-Herdr) — background session
+
+1. `claude agents --json` is an optional cross-check on which letters are live, not a
+   required step.
 2. Invoke `agent-handoff` with:
    - `name`: `"Agent<letter> - <issue>"` (or the branch name if there's no linked
      issue)
@@ -191,12 +287,14 @@ never spawn one unasked (they may be driving panes themselves this cycle).
 3. `agent-handoff` spawns it and hands you back `{name, pid, sessionId, cwd, status}`.
    You don't need to pass — or record — a branch or task id through it: the spawned
    worker looks up its own task via `orch next --agent <letter>`, which already has
-   the full context.
+   the full context, and creates its own worktree in `/work` step 2.
 
 ## Rules
 
 - Queuing new work is collaborative — never invent and queue endless tasks yourself.
 - Merge authority is centralized here; agents only report `done` on a branch.
 - Use `orch post --agent orchestrator ...` for your own events so they appear in the feed.
+- **(Herdr)** Read a worker's pane whenever it helps; prompt one ONLY with the human's
+  explicit go-ahead; never answer a `blocked` dialog. See "Talking to a worker".
 - Progress is informational. It tells you what an agent is doing and how far in it
   is — it never authorizes a merge and never changes a task's status.

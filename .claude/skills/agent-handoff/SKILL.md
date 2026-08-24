@@ -1,45 +1,126 @@
 ---
 name: agent-handoff
-description: Hand off work to another agent, either as a named background `claude` session or as a markdown handoff document in the repo (context summary, or a task brief for a fresh agent) plus a short prompt to paste into the desktop app. Standalone — no orchestrator/project knowledge required.
-user-invocable: true
+description: Hand off work to another agent — in Herdr by spawning it in a new tab or its own worktree workspace, otherwise as a named background `claude` session — or as a markdown handoff document in the repo (context summary, or a task brief for a fresh agent) plus a short prompt to paste anywhere. Standalone — no orchestrator/project knowledge required.
 disable-model-invocation: true
+user-invocable: true
 argument-hint: "What will the next session focus on?"
 ---
 
 # Agent Handoff
 
-Hand the current work to another agent. There are two delivery paths, and they
-are mutually exclusive.
+Hand the current work to another agent. Two mutually exclusive delivery paths —
+spawn the agent now, or write a handoff document — and the spawn path has a Herdr
+flavour and a plain-terminal flavour.
 
-## Step 0 — Ask which path
+## Step 0 — Detect the environment, then ask which path
+
+Run `test "${HERDR_ENV:-}" = 1 && echo herdr` once. If it prints `herdr`, you're inside
+a Herdr-managed pane and can spawn a real, visible, promptable agent — use the **Herdr
+question** below. Otherwise use the **classic question**.
 
 **If arguments were passed**, treat them as a description of what the next
 session will focus on. Use them to pick the document kind yourself instead of
 asking (a description of work to *do* → task brief; a description of work to
 *continue* → context summary), and tailor the whole document to that focus —
 drop sections of the conversation that don't serve it. Still ask which *path*
-(background agent vs. document) unless that's obvious from the arguments too.
+(spawn an agent vs. write a document) unless that's obvious from the arguments too.
 
-Always ask first, unless the invoker already said which one:
+Always ask first, unless the invoker already said which one.
+
+### Classic question (not in Herdr)
 
 > Background agent, or handoff document?
 >
 > 1. **Background agent** — spawn a named `claude --bg` session right now (terminal workflow).
 > 2. **Handoff document** — write a markdown file in the repo and give you a short prompt to paste into a fresh chat (desktop-app workflow).
 
-If **2**, ask the second question immediately:
+**1** → Path 1. **2** → Path 2.
+
+### Herdr question
+
+> How do you want to hand this off?
+>
+> 1. **I spawn it here** — I start a new agent in this Herdr session and send it the prompt.
+> 2. **Give me the prompt** — I write the handoff document and hand you a short prompt to paste wherever you like.
+
+If **1**, ask where, immediately:
+
+> Where should it run?
+>
+> - **a. New tab in this workspace** — same checkout, same working directory. For work that needs no isolation.
+> - **b. New worktree with its own tab** — its own branch and checkout, isolated from what you're doing here.
+
+**1** → Path 1H (with the placement they chose). **2** → Path 2.
+
+### Either way
+
+If they chose the document, ask the second question immediately:
 
 > What kind of document?
 >
 > - **a. Context summary** — where we are, what's done, what's next, so a fresh chat can pick up.
 > - **b. Task brief** — instructions for another agent: what to read, what to do, what "done" looks like.
 
-Then follow the matching section below. Never write the document *and* spawn a
-background session.
+Then follow the matching section below. Never write the document *and* spawn an
+agent.
 
 ---
 
-## Path 1 — Background agent
+## Path 1H — Herdr agent (in Herdr only)
+
+Takes the same two things as Path 1 — a **name** and a **prompt** — plus the placement
+chosen in Step 0. Nothing else: no notion of orchestrators, tasks, branches or tickets.
+
+The name must match `[a-z][a-z0-9_-]{0,31}` and be unique among live agents. Derive a
+short descriptive one from the work (`auth-refactor`, `flaky-tests`) and check
+`herdr agent list` for a collision first — if it's taken, pick another rather than
+spawning a duplicate.
+
+### a. New tab in this workspace
+
+```
+herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$PWD" --label "<name>" --no-focus
+```
+
+Read the root pane id from `.result.root_pane` in the JSON response — never guess IDs.
+
+### b. New worktree with its own tab
+
+Ask for the branch name if it isn't obvious from the work; base it on the current
+branch unless told otherwise.
+
+```
+herdr worktree create --branch <branch> --path <repo root>/.claude/worktrees/<name> --label "<name>" --no-focus
+```
+
+Read the workspace and root pane out of the JSON response. If the repo doesn't already
+gitignore `.claude/worktrees/`, mention it.
+
+### Then, either way
+
+1. **Start the agent** in that root pane:
+   ```
+   herdr agent start <name> --kind claude --pane <root pane id>
+   ```
+   Ask which `--kind` if Mattia wants something other than `claude` (`herdr agent start
+   --help` lists the installed kinds). If it returns `agent_not_ready` the agent came
+   up blocked during startup — `agent read` it and report; do not prompt it.
+2. **Send the prompt:**
+   ```
+   herdr agent prompt <name> "<prompt>" --wait --timeout 120000
+   ```
+   If it returns `agent_blocked` the agent is sitting on a dialog: read it, describe
+   it, and let Mattia answer. Never answer it yourself.
+3. **Report** `{name, workspace id, tab id, pane id, cwd, branch}` and how to reach it
+   (`herdr agent read <name>`, or just click the tab). `--no-focus` throughout means
+   his focus never moved — say so.
+
+Never `--focus` unless he asked to switch context, and never close a pane, tab or
+workspace you didn't create.
+
+---
+
+## Path 1 — Background agent (not in Herdr)
 
 Takes exactly two things: a **session name** and a **prompt**. Nothing else — no
 notion of the orchestrator, tasks, branches, or worktrees; whoever invokes it
@@ -73,6 +154,8 @@ decides what those two strings are.
 
 ### Notes
 
+- In Herdr, prefer Path 1H: a `claude --bg` session can't be talked to, whereas a
+  Herdr agent is visible, attachable and promptable by name.
 - Runs in whatever directory you invoke it from — it does not create or manage
   worktrees. If the target work needs isolation, that's the spawned session's job
   (or set it up yourself first).
