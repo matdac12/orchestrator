@@ -197,6 +197,28 @@ def find_project_by_path(conn, cwd):
     return best[0] if best else None
 
 
+def find_project_by_task(conn, task_id):
+    """The project owning `task_id`, or None. Lets a command that names a task
+    resolve the project even when it runs outside any checkout."""
+    row = conn.execute(
+        "SELECT p.name FROM tasks t JOIN projects p ON p.id = t.project_id "
+        "WHERE t.id = ?", (task_id,)).fetchone()
+    return row["name"] if row else None
+
+
+def find_project_by_agent(conn, agent):
+    """The single project where `agent` has an active task, or None when that
+    is zero or more than one. An agent letter is unique per project, not
+    globally, so this only answers when the answer is unambiguous."""
+    placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
+    rows = conn.execute(
+        f"SELECT DISTINCT p.name FROM tasks t JOIN projects p "
+        f"ON p.id = t.project_id WHERE t.agent = ? "
+        f"AND t.status IN ({placeholders})",
+        (agent, *ACTIVE_STATUSES)).fetchall()
+    return rows[0]["name"] if len(rows) == 1 else None
+
+
 def add_task(conn, project, agent, title, issue_ref=None, branch=None,
              worktree=None, context=None, status="queued"):
     if status not in TASK_STATUSES:

@@ -16,6 +16,9 @@ Resolve `<path>` = the orchestrator repo path once
 (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project; you run
 inside the target project but `orch.py` lives in the orchestrator repo). All commands:
 `python <path>/orch.py <cmd>`.
+Call it by that absolute path from wherever you are — never `cd` into the orchestrator
+repo to run it, because the project is inferred from your working directory and that
+directory is nobody's checkout.
 
 Your identity is `<AGENT>` (the skill argument) — pass it as `--agent <AGENT>` on every
 command (this skill already does). The project is inferred from your working directory

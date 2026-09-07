@@ -140,9 +140,10 @@ rather than discovering it in your report:
 
 Resolve `<path>` = the orchestrator repo path
 (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project; you run
-inside the target project but `orch.py` lives in the orchestrator repo). Pass your
-worker letter as `--agent <AGENT>` (the letter you were invoked with as
-`/work <AGENT>`); the project resolves from your linked directory — no env vars
+inside the target project but `orch.py` lives in the orchestrator repo). Call it by
+that absolute path — never `cd` into the orchestrator repo to run it, which breaks
+the directory-based project inference. Pass your worker letter as `--agent <AGENT>`
+(the letter you were invoked with as `/work <AGENT>`); the project resolves from your linked directory — no env vars
 needed. (If a command reports `can't infer the project`, run
 `python <path>/orch.py link <project>` once in this checkout.)
 

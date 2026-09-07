@@ -12,14 +12,28 @@ from orch.progress import PHASES
 
 def _project(conn, args):
     """Resolve the project: explicit flag, env var, the project linked to the
-    current directory (via `orch link`), or the sole project if only one
-    exists. Multi-project safe — agents run inside their target checkout."""
+    current directory (via `orch link`), the task or agent the command already
+    names, or the sole project if only one exists. Multi-project safe — agents
+    run inside their target checkout, and the identity fallbacks only answer
+    when the answer is unique."""
     name = args.project or os.environ.get("ORCH_PROJECT")
     if name:
         return name
     name = db.find_project_by_path(conn, os.getcwd())
     if name:
         return name
+    # cwd told us nothing — the agent `cd`-ed to the orchestrator repo, or ran
+    # from somewhere unlinked. The command usually already carries an identity.
+    task_id = getattr(args, "task", None)
+    if task_id is not None:
+        name = db.find_project_by_task(conn, task_id)
+        if name:
+            return name
+    agent = getattr(args, "agent", None) or os.environ.get("ORCH_AGENT")
+    if agent:
+        name = db.find_project_by_agent(conn, agent)
+        if name:
+            return name
     projs = db.list_projects(conn)
     if len(projs) == 1:
         return projs[0]["name"]

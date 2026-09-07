@@ -16,6 +16,9 @@ Resolve `<path>` = **the orchestrator repo path**, which is
 `C:/Users/MattiaDaCampo/Documents/orchestrator` (NOT your current project — you run
 inside the target project, but `orch.py` lives in the orchestrator repo). All commands:
 `python <path>/orch.py <cmd>`.
+Call it by that absolute path from wherever you are — never `cd` into the orchestrator
+repo to run it, because the project is inferred from your working directory and that
+directory is nobody's checkout.
 
 The project is inferred from your working directory once it's linked — no env vars, no
 relaunch. `ORCH_PROJECT` still works as an override.

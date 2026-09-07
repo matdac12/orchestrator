@@ -248,6 +248,42 @@ class CLITest(unittest.TestCase):
         self.assertEqual(out.returncode, 0)
         self.assertEqual(json.loads(out.stdout)["project"]["name"], "beta")
 
+    def test_agent_resolves_project_when_directory_does_not(self):
+        # Agent runs from an unlinked dir (e.g. `cd` into the orchestrator
+        # repo). Its single active task names the project.
+        run(["init", "alpha"], self.db)
+        run(["init", "beta"], self.db)
+        run(["task", "add", "--project", "beta", "--agent", "D",
+             "--title", "hamburger"], self.db)
+        out = run(["post", "--agent", "D", "--kind", "needs_discussion",
+                   "--msg", "claimed"], self.db, cwd=self.tmp)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        state = json.loads(
+            run(["status", "--project", "beta", "--json"], self.db).stdout)
+        self.assertEqual(state["events"][0]["message"], "claimed")
+
+    def test_agent_active_in_two_projects_stays_ambiguous(self):
+        run(["init", "alpha"], self.db)
+        run(["init", "beta"], self.db)
+        for proj in ("alpha", "beta"):
+            run(["task", "add", "--project", proj, "--agent", "D",
+                 "--title", "X"], self.db)
+        out = run(["post", "--agent", "D", "--msg", "hi"], self.db,
+                  cwd=self.tmp)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("can't infer the project", out.stderr)
+
+    def test_task_flag_resolves_project_when_directory_does_not(self):
+        run(["init", "alpha"], self.db)
+        run(["init", "beta"], self.db)
+        add = run(["task", "add", "--project", "beta", "--agent", "D",
+                   "--title", "X"], self.db)
+        tid = add.stdout.strip().split()[-1]
+        out = run(["progress", "--task", tid, "--agent", "D",
+                   "--phase", "setup", "--msg", "worktree ready"],
+                  self.db, cwd=self.tmp)
+        self.assertEqual(out.returncode, 0, out.stderr)
+
     def test_link_unknown_project_fails(self):
         run(["init", "alpha"], self.db)
         out = run(["link", "ghost"], self.db, cwd=self.tmp)
