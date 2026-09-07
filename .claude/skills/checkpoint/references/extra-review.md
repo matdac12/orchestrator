@@ -19,8 +19,9 @@ Whichever you dispatch, the brief and the constraints are the same:
 
 - **Codex** when you want the implementation checked against a different set of priors,
   or the design challenged adversarially.
-- **Fable** when the question is design judgement, subtle logic, or "is this the right
-  shape" — and whenever Codex is unavailable or you have already used it on this diff.
+- **A Claude subagent** when the question is design judgement, subtle logic, or "is
+  this the right shape" — and whenever Codex is unavailable or you have already used it
+  on this diff.
 
 ## Codex
 
@@ -39,16 +40,17 @@ contract, on the Step 0 range. For example:
 Use an "adversarial review … challenge the approach/assumptions" framing when you want
 the design questioned rather than the implementation checked.
 
-## Fable
+## Claude subagent
 
-Dispatch a subagent via the Agent tool with `model: "fable"` — authorized by the same
-standing request, since it is the same fresh-eyes dispatch on a different model. Give
-it the contract above.
+Dispatch a subagent via the Agent tool — authorized by the same standing request, since
+it is the same fresh-eyes dispatch. Give it the contract above. Leave `model` unset and
+it inherits the session's; pass one only if you deliberately want a different engine.
+Don't hardcode a model name here — a fresh context is what makes the review worth
+running, whichever model reads it.
 
 ## When Codex is unavailable
 
 Fall back rather than giving up. CLI not installed, token expired mid-review → **run
-the Fable subagent instead**, in both modes. It is one Agent call away, always
-available, and delivers the same fresh-eyes value from a non-Opus model. Note the
-substitution. Only if that also fails do you skip Step 2 and flag it per **Never
+the Claude subagent instead**, in both modes. It is one Agent call away, always
+available, and delivers the same fresh-eyes value. Note the substitution. Only if that also fails do you skip Step 2 and flag it per **Never
 degrade silently**.

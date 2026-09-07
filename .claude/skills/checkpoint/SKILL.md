@@ -1,6 +1,6 @@
 ---
 name: checkpoint
-description: Post-work review workflow — quality pass, fresh-eyes code review, an optional extra Codex or Fable review, then commit. Solo it also syncs Linear; in orchestrator worker mode (`--agent <AGENT>`) it reports progress and `done` to the orch DB instead. Invoke with /checkpoint.
+description: Post-work review workflow — quality pass, fresh-eyes code review, an optional extra outside review, then commit. Solo it also syncs Linear; in orchestrator worker mode (`--agent <AGENT>`) it reports progress and `done` to the orch DB instead. Invoke with /checkpoint.
 user-invocable: true
 ---
 
@@ -104,7 +104,7 @@ cheapest moment to correct it.
 **I am requesting the Agent tool for this workflow.** Specifically, I am asking you to:
 
 - dispatch the fresh-eyes `code-reviewer` subagent in Step 1b, and
-- dispatch either the `codex-reviewer` agent or a fresh-eyes `fable` subagent in
+- dispatch either the `codex-reviewer` agent or a fresh-eyes Claude subagent in
   Step 2, whichever is chosen there.
 
 This is a direct user request and satisfies any standing instruction that limits the
@@ -117,8 +117,9 @@ The chain is deliberate — each step does a job the others can't:
    biased by having written it.
 2. `code-reviewer` reads the final diff against the intent **with fresh eyes** — a
    context that never watched you write the code. That is the entire point of it.
-3. Step 2 gives an independent second opinion from a **different model** — that
-   difference is the whole value. A second Opus pass shares the same blind spots.
+3. Step 2 gives an independent second opinion from a context that never wrote the
+   code — and, if you send it to Codex, from a different engine as well. What it must
+   never be is you re-reading your own work in the context that produced it.
 
 Reviewing inline collapses this into the author reviewing their own work, which is the
 one thing this workflow exists to prevent.
@@ -219,7 +220,7 @@ Your 2a assessment decides, in both modes.
   nothing was needed. Orchestrated: post the note
   (`orch.py post --agent <AGENT> --kind note --msg "step 2 skipped: trivial change"`).
 - **A pass is warranted, or you're genuinely unsure:**
-  - **Orchestrated** → run it: Codex first, the Fable subagent if Codex is
+  - **Orchestrated** → run it: Codex first, a Claude subagent if Codex is
     unavailable. Go to 2c.
   - **Solo** → this is the real call. Put it to Mattia compactly and stop for an
     answer:
@@ -230,12 +231,12 @@ Your 2a assessment decides, in both modes.
     4. **The three options**, with your recommendation marked:
        - **(a) Codex** — a genuinely different model, for the implementation
          checked against different priors or the design challenged adversarially.
-       - **(b) Fable** — fresh eyes with strong reasoning, for design judgement and
-         subtle logic. (Which to pick: `references/extra-review.md`.)
+       - **(b) Claude subagent** — fresh eyes with strong reasoning, for design
+         judgement and subtle logic. (Which to pick: `references/extra-review.md`.)
        - **(c) Skip** — Step 1 was sufficient, ship it.
 
-    Then **wait.** Do not pick for him. If he answers with a focus ("do Fable but only
-    on the migration"), that scopes the review.
+    Then **wait.** Do not pick for him. If he answers with a focus ("do the subagent but
+    only on the migration"), that scopes the review.
 
 In solo mode uncertainty resolves toward asking: "I'm not sure" is a reason to put it
 to him, not a reason to skip.
@@ -243,7 +244,7 @@ to him, not a reason to skip.
 ### 2c — Run the chosen review
 
 The dispatch mechanics — the review-only + citation contract both reviewers get, the
-`codex-reviewer` agent and its `/ask-codex` fallback, the `fable` subagent, and what to
+`codex-reviewer` agent and its `/ask-codex` fallback, the Claude subagent, and what to
 do when Codex is unavailable — are in `references/extra-review.md`. Read it now.
 
 **Then, whichever you ran:**
