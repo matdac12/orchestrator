@@ -1,6 +1,7 @@
 ---
 name: orchestrate
 description: Use when the human tells you an agent finished a task and it needs integrating. Lean, manually-invoked orchestrator for the multi-agent system. Merges the named agent's finished branch and updates Linear, collaborates with the human to queue new kickoffs, and pings the human on blockers or when direction is needed. Runs one pass per invocation, then stops.
+disable-model-invocation: true
 ---
 
 # Orchestrate
@@ -325,6 +326,31 @@ is exactly the detached, un-groupable sidebar row the naming section rules out.
 
    If the command fails (branch already exists, path occupied, dirty index), stop and
    report it. Do not retry with `--force` and do not improvise a different path.
+
+   Then **seed the worktree's local settings** so the worker doesn't come up blocked:
+   ```
+   mkdir -p "<that worktree path>/.claude"
+   cp "<project root>/.claude/settings.local.json" "<that worktree path>/.claude/settings.local.json"
+   ```
+   **The `mkdir -p` is not belt-and-braces.** `git worktree add` materializes only
+   *tracked* files, so `.claude/` exists in the new worktree only if something under it
+   is committed. In a project whose whole `.claude/` is gitignored there is no directory
+   and the `cp` dies with `No such file or directory` — in exactly the projects this step
+   exists to protect. Quote both paths too: on Windows a project root with a space in it
+   is ordinary.
+
+   Skip the `cp` if the *source* file doesn't exist — that is the only benign outcome
+   here. A `cp` that runs and fails is a stop-and-report, not a skip; the worker will
+   otherwise boot straight into the dialog below with nobody to answer it.
+
+   The file is gitignored, so a fresh worktree starts without it — and it carries
+   `enableAllProjectMcpServers` / `enabledMcpjsonServers`. Without them, a project with a
+   `.mcp.json` stops the new agent on **"New MCP servers found — do you want to enable
+   them?"** before it ever reads its prompt, with nobody there to press Enter. It also
+   hands the worker the permission allowlist the human already approved. If the project
+   has a `.mcp.json` but no `settings.local.json`, write
+   `{"enableAllProjectMcpServers": true}` into the worktree's copy instead — after the
+   same `mkdir -p`, which that path needs just as much.
 3. **Open a tab on it, in the workspace you are already in:**
    ```
    herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd <that worktree path> --label "Agent <LETTER> · <2-3 words>" --no-focus
@@ -350,14 +376,118 @@ is exactly the detached, un-groupable sidebar row the naming section rules out.
    argument with a leading `/` is rewritten into a Windows path, so `/work B` silently
    arrives at the worker as `C:/Program Files/Git/work B`.
    ```
-   MSYS_NO_PATHCONV=1 herdr agent prompt <name> "/work <letter>" --wait --timeout 120000
+   MSYS_NO_PATHCONV=1 herdr agent prompt <name> "/work <letter>" --wait --until working --until blocked --timeout 15000
    ```
    The worker looks up its own task via `orch next --agent <letter>`, so you pass no
    branch and no task id through the prompt.
+
+   **`--until working --until blocked` is what keeps the spawn fast.** Bare `--wait`
+   matches `idle`, `done`, or `blocked` — it blocks until the worker's whole first turn
+   is *over*, which for `/work` means the full brainstorm, a minute or two, and then
+   step 7 throws that result away. Herdr already confirms `working`-or-`blocked` within
+   5s of an accepted submission (that is its own `agent_prompt_stalled` guard), so
+   matching those two states returns in seconds and still proves the submission was
+   accepted and that Herdr observed the worker leave idle. It is not a per-turn
+   acknowledgement — Herdr states plainly that it does not track turns — but for a worker
+   you have just cold-started there is no other turn in flight, and step 7 needs no more
+   than that. `blocked` stays in the match list so a worker that came up on a
+   dialog still surfaces here instead of timing out — handle it the same way as
+   anywhere else: read it, tell the human, never answer it.
+
+   This shortened wait is for the **kickoff only**. When you relay the human's message
+   to a running worker ("Talking to a worker" above), you want the reply, so keep the
+   blocking `--wait --timeout 120000` there.
 7. **Report** `{tab label, agent name, tab id, pane id, worktree path, branch}` to the
    human — lead with the tab label, since that's the row he'll look for in the sidebar,
    grouped under this project — and say the worker will stop at its discussion gate and
    wait for him there. Then stop; do not sit and poll it.
+
+#### Spawning more than one agent in the same cycle
+
+Steps 1–7 are a *per-agent* sequence. Run them end to end N times and agent C waits out
+A's and B's Claude Code boots before it hears anything. Split them by phase instead and
+overlap the slow part.
+
+**Phase 1 — worktree and bookkeeping, per agent, sequentially.** Steps 1, 2 and 4 for
+each agent in turn. They all write the source repo's index and worktree metadata, so do
+**not** background these; they are sub-second anyway. Do step 4
+(`orch task update --task <id> --worktree <path>`) **here**, the moment the worktree
+exists — not at the end. If a later phase fails for one agent, every worktree already
+created stays recorded.
+
+**Phase 2 — tab, start, kickoff *and* the verification dump: one Bash call, all agents
+at once.** Steps 3, 5 and 6 per agent, each in its own background subshell. `agent start`
+is what costs the time (cold Claude Code plus MCP servers, 15–40s); backgrounding turns N
+boots into one wall-clock boot. The `wait` and the log dump belong to **that same call** —
+the Bash tool starts a fresh shell every time, so a `$LOGS` read from a second call
+expands to nothing and `cat "$LOGS"/*.log` silently becomes `cat /*.log`.
+
+```bash
+LOGS=$(mktemp -d)
+
+spawn() {  # $1 herdr agent name  $2 worktree path  $3 tab label  $4 agent letter
+  herdr tab create --workspace "$HERDR_WORKSPACE_ID" \
+      --cwd "$2" --label "$3" --no-focus \
+    >"$LOGS/$1.tab.json" 2>&1 || { echo "FAIL tab $1"; return 1; }
+  pane=$(jq -r '.result.root_pane // empty' <"$LOGS/$1.tab.json")
+  [ -n "$pane" ] || { echo "FAIL tab $1 (no root_pane)"; return 1; }
+
+  herdr agent start "$1" --kind claude --pane "$pane" --timeout 120000 \
+    >"$LOGS/$1.start.json" 2>&1 || { echo "FAIL start $1"; return 1; }
+
+  MSYS_NO_PATHCONV=1 herdr agent prompt "$1" "/work $4" \
+    --wait --until working --until blocked --timeout 15000 \
+    >"$LOGS/$1.prompt.json" 2>&1 || { echo "FAIL prompt $1"; return 1; }
+
+  echo "OK $1 pane=$pane"
+}
+
+spawn a-42 "<worktree A>" "Agent A · login form" A >"$LOGS/a-42.log" 2>&1 &
+spawn b-43 "<worktree B>" "Agent B · nav rework" B >"$LOGS/b-43.log" 2>&1 &
+wait
+
+echo "--- launch results ---"; cat "$LOGS"/*.log
+for f in "$LOGS"/*.log; do
+  grep -q FAIL "$f" || continue
+  n=$(basename "$f" .log)
+  echo "--- detail: $n ---"; cat "$LOGS/$n".*.json
+done
+echo "--- live agents ---"; herdr agent list
+echo "--- logs kept in: $LOGS"
+```
+
+Writing `tab create`'s response to a file and reading `root_pane` back out of it, rather
+than piping `tab create | jq`, is deliberate: in a pipeline `pane=$(...)` takes **jq's**
+exit status, so a `tab create` that printed something parseable and *then* failed would
+walk straight past the guard.
+
+`MSYS_NO_PATHCONV=1` stays scoped to the prompt line, exactly as in step 6 — the
+`--cwd "$2"` on `tab create` is a POSIX path that *needs* the conversion, and a
+function-wide prefix would break it.
+
+**Phase 3 — judge that output before you report anything.** A backgrounded failure is a
+silent one — bare `wait` returns 0 even when a child failed — so those logs are the only
+evidence you have:
+
+- **Launched** = that agent's line reads `OK`. Anything else, or a missing line, is a
+  failure, and the *cause* is in its `.tab.json` / `.start.json` / `.prompt.json`, which
+  the block already dumped. The `.log` line only carries the category.
+- **State** — in `herdr agent list`, `working`, `idle`, `done` and `blocked` are all
+  acceptable. Do **not** require `working`: an agent that booted fast can already be
+  parked at its discussion gate (`idle`) by the time the slowest one finished booting,
+  and `blocked` is a state the kickoff's `--until blocked` deliberately matches. Only
+  `unknown`, or an agent missing from the list entirely, is wrong.
+- `blocked` → `agent read` it and tell the human what the dialog says. Never answer it.
+- A failure *before* `agent start` means there is no agent to `agent read` — report what
+  its `.tab.json` said instead.
+
+Then do step 7 (report) for every agent, the failed ones included: a partial spawn gets
+reported, not hidden and not blindly retried. If you need those files again in a later
+Bash call, use the literal path the block printed — `$LOGS` itself is gone by then.
+
+Booting N Claude Codes at once is heavier than booting one: on a loaded machine a worker
+can still exceed even the 120s readiness timeout. That agent's log says so and the others
+are unaffected — report the partial spawn rather than tearing the batch down.
 
 ### (non-Herdr) — background session
 
