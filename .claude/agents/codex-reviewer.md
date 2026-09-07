@@ -52,8 +52,8 @@ Return exactly this structure, nothing more:
 3. **FINDINGS:** Codex's findings, each with its file:line + verbatim quote citation,
    verbatim or minimally tightened — never strip the citations, they are the whole
    point. If Codex returned none, say "no findings".
-4. **REVIEWER'S NOTE (yours, max 3 sentences):** where you agree/disagree with Codex
-   and why, or "no objections". You are a critical relay, not a rubber stamp — but keep
-   it to sentences, not pages.
+4. **REVIEWER'S NOTE (yours):** where you agree/disagree with Codex and why, or "no
+   objections". You are a critical relay, not a rubber stamp — a few sentences, not
+   pages.
 
 Do not include the raw Codex transcript, your command lines, or process narration.

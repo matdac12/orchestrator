@@ -34,7 +34,7 @@ once it's linked, so you need NO env vars and NO relaunch.
    fresh checkout that's never been linked → run `python <path>/orch.py link <project>`
    once here (ask the human the project name if unsure), then retry. **Never run `link`
    from inside a worktree** — it rebinds the project's shared root to wherever it's
-   run, silently breaking resolution for every other agent; the CLI itself now refuses
+   run, silently breaking resolution for every other agent; the CLI refuses
    this, but if you ever see the error while inside a worktree, `cd` to the main
    checkout and link from there instead. (`ORCH_PROJECT` still works as an override if
    you ever need it.)
@@ -62,20 +62,15 @@ once it's linked, so you need NO env vars and NO relaunch.
        `EnterWorktree` with `path: <that path>`, or plain `cd <that path>` if the tool
        isn't available. Record the field now if it doesn't already match.
    - **Directory doesn't exist yet** (fresh claim, or the field pointed at a path
-     that's gone) **→ create it at the computed path.** Skip `using-git-worktrees`'s
-     human-consent gate — you're unattended, and the human already opted in by using
-     the orchestrator system. Prefer the native `EnterWorktree` tool with
-     `name: "<AGENT>-<task id>"` (it places new worktrees under `.claude/worktrees/`
-     relative to cwd, which is exactly the computed path when called from the project
-     root — if for any reason your cwd is inside *another* worktree, don't use `name:`
-     there, it would nest; use the absolute-path `git worktree add` fallback below
-     instead). First check this project's `worktree.baseRef` setting
-     (`.claude/settings.json`): its default, `fresh`, branches off
-     `origin/<default-branch>`, which can lag your local `main`. If it is not `head`,
-     skip `EnterWorktree` and fall back to
-     `git worktree add -b <branch> <project root>/.claude/worktrees/<AGENT>-<task id>`
-     instead — same destination, bases off local HEAD with no setting needed. Either
-     way, immediately record it — before doing anything else in the worktree:
+     that's gone) **→ create it at the computed path**, with the same command the
+     orchestrator uses at spawn time so both sides agree on any resume:
+     ```
+     git -C <project root> worktree add -b <branch> <project root>/.claude/worktrees/<AGENT>-<task id> <defaultBranch>
+     ```
+     then `cd` into it. Base off the **local** default branch, not
+     `origin/<default-branch>`, which can lag it. No human-consent gate here — you're
+     unattended, and the human opted in by using the orchestrator system. Record it
+     immediately, before anything else in the worktree:
      `python <path>/orch.py task update --task <id> --worktree <that path>`.
      First time in this project, if it doesn't already gitignore `.claude/worktrees/`,
      mention that to the human — worktrees under it are transient and shouldn't be
@@ -142,14 +137,12 @@ once it's linked, so you need NO env vars and NO relaunch.
        Do the same when you report `blocked`. This is in addition to `orch notify`,
        not instead of it, and it's best-effort: a failed notification never blocks.
      - Post the signal: `orch post --agent <AGENT> --kind needs_discussion --msg "claimed, awaiting brainstorm"` (this specific kind has no /report alias; use it as-is). This raises the `needs_human` flag so the human's `orch status` shows you under "WAITING ON YOU".
-     - **Investigation-first for dated/old issues.** If the issue is not freshly
-       written (it references work that may already be underway or shipped — drift
-       risk), do NOT start brainstorming a build. First run **PHASE 1 = gap-analysis**:
-       read the current code vs the issue and report what is already done, partial, or
-       missing — write NO code. Then **PHASE 2 = decide with the human** what (if
-       anything) still needs building, and only then proceed to the brainstorm. If
-       PHASE 1 shows the issue is already satisfied, say so and propose closing it
-       rather than inventing work.
+     - **Check what already shipped before designing anything.** Issues drift: by the
+       time one is picked up, part of it may be underway or done. Before brainstorming
+       a build, read the current code against the issue and report what is done,
+       partial, or missing — investigation only, no code yet. Then decide with the
+       human what still needs building. If nothing does, say so and propose closing the
+       issue rather than inventing work.
      - Investigation pass → `orch progress --agent <AGENT> --phase investigation
        --msg "<what's already shipped vs missing>"`.
      - Brainstorm WITH the human: invoke `superpowers:brainstorming`, using the
@@ -176,8 +169,7 @@ once it's linked, so you need NO env vars and NO relaunch.
      --step <N> --step-total <total> --msg "<the task you're starting>"
      --next "<the one after>"`.
      `--step` is the task you are starting, never the one you just finished — that
-     is what makes `3/6` answer "how much is left". This replaces the old
-     `/report plan task N done` note; don't send both.
+     is what makes `3/6` answer "how much is left".
    - Self-review and finish with `/checkpoint --agent <AGENT>` — it runs code review,
      optional Codex review, commits your branch, and reports `done` for you. **The
      `--agent` flag is required**: without it `/checkpoint` runs in solo mode and will

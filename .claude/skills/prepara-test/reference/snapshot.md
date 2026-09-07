@@ -1,4 +1,4 @@
-# Sanitized real-data snapshot (v5 Phase 3) — READ BEFORE ENABLING
+# Sanitized real-data snapshot — READ BEFORE ENABLING
 
 `SEED_STRATEGY=snapshot` pulls a slice of a **real** database into the sandbox so
 missions run against realistic data. Real data in the sandbox is a **GDPR / data-leak
@@ -69,10 +69,9 @@ re-pulls a fresh masked slice between missions.
 warned). All value-derived masks are deterministic by the original value, so
 references stay consistent (same source email → same fake) without revealing anything.
 
-## Verified behavior (dogfood)
+## What the tool guarantees
 
-Against a source DB of 7 PII users + 3 orders, config scoped to 5 users / 2 orders:
-the sandbox received exactly 5 users and 2 orders; emails/names/phones masked, password
-hashes + API tokens `NULL`, addresses `REDACTED`; **0 rows contained real PII**; the
-source DB was **untouched** (7 real users intact). The tool refused when `SOURCE_DB_URL`
-was missing and when a table had no row `limit`.
+Row caps are applied exactly; emails, names and phones are masked, password hashes and
+API tokens are written as `NULL`, free-text PII as `REDACTED`; the source DB is never
+written to. It refuses to run when `SOURCE_DB_URL` is missing or a table has no row
+`limit`.

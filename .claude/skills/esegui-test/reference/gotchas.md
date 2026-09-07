@@ -40,7 +40,7 @@ The host port is **ephemeral per run**. Always read `SANDBOX_URL` from `up`; nev
 ## Review mode: missions mutate state → reset between them
 Adversarial missions create/delete/edit data. Two missions against the same live app + DB corrupt each other's assumptions, so review mode runs missions **sequentially** and calls `sandbox.sh reset` before each one. Never fan missions out in parallel against one sandbox. The default `reset` recreates the data services + their anonymous volumes (fresh empty DB), re-runs the seed per `SEED_STRATEGY` (`MIGRATE_CMD`/`SEED_CMD` in-container; no-op for `initdb`), restarts the app **in place** so it drops any stale DB pool (the container is kept, so `SANDBOX_URL` survives), and re-polls `HEALTH_PATH` before returning. Set `SEED_STRATEGY` + the slots for any DB-backed app — the DB image will not seed your app's data itself. `RESET_CMD` remains only as a full override (e.g. a DB on a **named** volume that `rm` won't wipe).
 
-## v5 seeding: schema must exist before the app boots
+## Seeding: schema must exist before the app boots
 With `SEED_STRATEGY=migrations`/`synthetic`, `up` brings the **data services up
 first** (health-gated), runs `MIGRATE_CMD`/`SEED_CMD` **in-container**
 (`compose run --rm --build --no-deps` on `SEED_SERVICE`, default the app image),
@@ -53,7 +53,7 @@ sandbox — replicate that DB locally (a throwaway `postgres` service) and point
 `DATABASE_URL` at the replica; adversarial missions mutate + `reset` data and the
 report can be published as an Artifact.
 
-## v5 auth: post-login redirect points at the container origin, not localhost
+## Auth: post-login redirect points at the container origin, not localhost
 An app that builds an **absolute** redirect from the request URL (e.g. Next's
 `new URL(req.url).origin`, `request.nextUrl.origin`) resolves it to the app's
 **internal** bind — `http://0.0.0.0:3000` / `http://<service>:3000` — because that's
@@ -62,10 +62,9 @@ where the server actually listens. In the sandbox the browser is on the **publis
 looks broken even though auth succeeded. This is usually a **product** bug worth
 reporting (it also bites real reverse-proxy deploys): prefer a **relative** Location
 (browsers resolve it against the address-bar URL) or derive the origin from the
-`Host`/`X-Forwarded-Host` header, not from the socket. (We hit exactly this in the
-v5 dogfood.) Distinguish it from the recipe-side cookie/CORS issues below.
+`Host`/`X-Forwarded-Host` header, not from the socket. Distinguish it from the recipe-side cookie/CORS issues below.
 
-## v5 snapshot: real data must be MASKED, runtime-loaded, and never committed/baked
+## Snapshot: real data must be MASKED, runtime-loaded, and never committed/baked
 `SEED_STRATEGY=snapshot` is the only sanctioned way to get real data into the sandbox,
 and only through the masking pipeline in the prepara-test skill's `reference/snapshot.md`. The traps that make it a
 leak if you get them wrong: (1) `SOURCE_DB_URL` is **runtime-injected**, never in
@@ -77,7 +76,7 @@ image (a cached layer is a frozen leak); (4) any `SNAPSHOT_DUMP` holds masked da
 and its path **must be gitignored**; (5) tables are **scoped** (row-limited) — the tool
 refuses an unscoped table. When in doubt, don't enable it — synthetic seed is safe.
 
-## v5 auth: "seeded user rejected" is a recipe bug, not a broken login
+## Auth: "seeded user rejected" is a recipe bug, not a broken login
 If the login **form renders** but the seeded `TEST_USER`/`TEST_PASSWORD` is
 rejected, suspect the recipe/seed — not the product. Usual causes: the seed wrote
 the wrong password-hash format (app uses bcrypt, seed wrote plaintext/SHA-256), the

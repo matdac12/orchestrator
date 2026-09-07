@@ -1,6 +1,6 @@
 # Review mode — the adversarial brain
 
-This is the playbook for the autonomous flow: read what changed → decide what to hunt for → delegate one agent per mission → aggregate. It sits on top of the v1 sandbox core (`sandbox.sh` + `driving-the-app.md`), which is unchanged.
+This is the playbook for the autonomous flow: read what changed → decide what to hunt for → delegate one agent per mission → aggregate. It sits on top of the sandbox core (`sandbox.sh` + `driving-the-app.md`).
 
 Three roles: **Planner** (you, the agent running the skill), **Delegate** (one spawned subagent per mission), **Aggregator** (you again, after delegates return).
 
@@ -104,4 +104,4 @@ Finally `sandbox.sh down` (base image stays cached).
 ## Notes
 - The planner is the agent running the skill — it runs at the session model, so launch the skill under a strong model (Opus) for good missions. Delegates are always spawned as `DELEGATE_MODEL`.
 - Missions run **sequentially** with a `reset` between them — bounded machine load and bounded spend. Don't fan out in parallel (shared app + DB; they'd collide).
-- This is v2's autonomous flow. If the user just wants one specific check, that's a brief with one obvious mission — same machinery.
+- If the user just wants one specific check, that's a brief with one obvious mission — same machinery.

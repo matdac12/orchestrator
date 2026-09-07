@@ -56,7 +56,8 @@ Then teach link 1 **in the same message**. There is no approval gate on the map.
    A yes moves to the next link. It is never a quiz on the content and never a
    decision for the human to make.
 
-Parts 1 to 4 stay under about 150 words in total. That is a ceiling, not a target.
+Parts 1 to 4 together are short enough to take in at a glance: one idea, one example,
+nothing that belongs to a later link.
 
 ## Stop after every link
 

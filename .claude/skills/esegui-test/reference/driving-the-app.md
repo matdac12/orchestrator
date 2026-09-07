@@ -2,7 +2,7 @@
 
 After `sandbox.sh up` prints `SANDBOX_URL` and `EVIDENCE_DIR`, drive the running app with the **agent-browser** skill (invoke it; it's the preferred browser path). You are hitting the app on the host's published port — plain HTTP on `localhost`, so no container-networking or HTTPS-upgrade issues apply.
 
-## Logging in (v5)
+## Logging in
 
 If the app gates pages behind auth, `up` prints the throwaway seeded creds
 alongside `SANDBOX_URL`:
@@ -71,4 +71,3 @@ Then report the verdict to the user inline and, for UI steps, show the key scree
 - Use the **seeded** test user the recipe documents — never real credentials.
 - If login fails with an empty network tab, suspect CORS or the cookie `Secure` flag over HTTP (see `gotchas.md`).
 - Prefer role/text/testid locators over brittle CSS/XPath so the same flow survives small UI churn between commits.
-- This is guided (you say what to check). Auto-deciding checks from the diff + delegating persona agents is the future v2 layer.

@@ -52,10 +52,9 @@ Many apps refuse to boot without secrets (JWT/RSA keys, vault master keys, API k
 - Put **throwaway** values in the `environment:` of `sandbox.compose.yml` (or generate ephemeral ones in a one-shot init service). Never depend on the developer's real `.env`.
 - If a secret must be generated (e.g. an RSA keypair), record the exact generation command in the recipe as a comment so it's reproducible.
 
-## 5. Auth & DB seeding (v5) — arrive logged-in, with data
+## 5. Auth & DB seeding — arrive logged-in, with data
 
-Two optional recipe blocks. Skip both for a public, no-auth, initdb-seeded app
-(behavior is then exactly pre-v5).
+Two optional recipe blocks. Skip both for a public, no-auth, initdb-seeded app.
 
 ### 5a. Auth — the delegate must be able to log in
 
@@ -90,7 +89,7 @@ Pick `SEED_STRATEGY` in the recipe:
 
 - **`initdb`** (default) — the Postgres image's `/docker-entrypoint-initdb.d`
   scripts only (e.g. a `seed.sql` mounted into the postgres service). Nothing else
-  runs. This is the pre-v5 SHAPE B behavior; leave the strategy unset to get it.
+  runs. Leave the strategy unset to get it.
 - **`migrations`** — set `MIGRATE_CMD` to the repo's migration tool
   (`npx prisma migrate deploy`, `alembic upgrade head`, `knex migrate:latest`,
   `drizzle-kit push`, or `psql -f schema.sql`). It runs **in-container** against

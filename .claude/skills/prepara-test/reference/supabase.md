@@ -1,4 +1,4 @@
-# Local Supabase in the sandbox (v5 Phase 2)
+# Local Supabase in the sandbox
 
 When the app authenticates against **Supabase**, you cannot point the sandbox at
 the real Supabase project — adversarial missions create/delete data and `reset`
@@ -50,9 +50,9 @@ Two gotchas that actually bit during the dogfood:
 - **The gateway is internal — do NOT publish it to the host.** Only `frontend`
   publishes an (ephemeral) port. See §4.
 
-## 3. Seed a confirmed test user (reuses the v5 seed hook)
+## 3. Seed a confirmed test user (reuses the seed hook)
 
-No new machinery: the Phase-1 `seed_db` hook does it. In `recipe.env`:
+No new machinery: the ordinary `seed_db` hook does it. In `recipe.env`:
 
 ```sh
 DATA_SERVICES="db auth rest gateway"   # reset recreates the whole stack; wipes auth.users
@@ -82,8 +82,7 @@ Because `DATA_SERVICES` includes `db auth rest gateway`, the skill's two-phase `
 brings the **whole stack up (health-gated) before the app**, then runs the seed
 against the live gateway, then starts the app. `reset` recreates the stack
 (dropping `db` wipes `auth.users`) and re-runs the seed — so every mission starts
-with the same confirmed user and no leftover state. **Zero `sandbox.sh` changes** —
-Phase 2 rides entirely on the Phase-1 seed hook + two-phase up + reset.
+with the same confirmed user and no leftover state.
 
 ## 3b. Real schema + synthetic data (when the repo has no schema baseline)
 

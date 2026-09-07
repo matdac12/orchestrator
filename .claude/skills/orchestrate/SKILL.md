@@ -35,7 +35,7 @@ relaunch. `ORCH_PROJECT` still works as an override.
    errors with `can't infer the project from this directory`, this checkout isn't linked
    → run `python <path>/orch.py link <project>` once here (ask the human the project
    name if unsure), then retry. **Never run `link` from inside a worktree** — it
-   rebinds the project's shared root to wherever it's run; the CLI itself now refuses
+   rebinds the project's shared root to wherever it's run; the CLI refuses
    this, but you should only ever be running from the main checkout anyway (see step 1).
 3. **Resolve the default branch once.** Run
    `git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null` — if it prints
@@ -161,27 +161,17 @@ The human names the agent/task that just finished (e.g. "agent A is done"). Act 
        files outside the task's declared boundaries), `git merge --abort` and treat it
        as a conflict failure below — `<defaultBranch>` was never touched, so there's
        nothing to roll back.
-   - **Run the project's test suite on the merged (or resolved) result — do not guess
-     the command.** Discover it in this order and run the first that applies (stop at
-     the first match):
-     1. `package.json` → `scripts.test` exists → run with the project's package
-        manager: lockfile `pnpm-lock.yaml` → `pnpm test`, `yarn.lock` → `yarn test`,
-        `bun.lockb` → `bun test`, otherwise `npm test`. If `scripts` also has
-        `typecheck`/`lint`/`format:check`, run those first — they are the
-        "typecheck → tests → format" the conflict path refers to.
-     2. `pyproject.toml` / `pytest.ini` / `setup.cfg` with `[tool.pytest]` →
-        `python -m pytest -q` (or `uv run pytest -q` if `uv.lock` is present).
-     3. `Makefile` with a `test` target and no JS/Python project above → `make test`.
-     4. No recognizable harness → do NOT invent `npm test`/`pytest`. Post
-        `orch post --agent orchestrator --kind warning --msg "no test harness found
-        at <path>, skipping verification — manual check needed"` and treat the
-        merge as unverified (ask the human before marking `merged`; never silently
-        mark green).
-     If `package-lock.json` / `pnpm-lock.yaml` is present, run
-     `python <path>/orch.py deps` first if `node_modules` is stale/missing — the
-     same sync `work/SKILL.md:80-88` uses, so the suite doesn't fail for missing
-     deps. Record the exact command + exit code in the merge report; a non-zero
-     exit is the same as "tests fail" below.
+   - **Run the project's own verification on the merged (or resolved) result.** Take
+     the commands from what the project declares — `package.json` scripts run with its
+     lockfile's package manager, `pyproject.toml`/`pytest.ini`, a `Makefile` `test`
+     target — and run typecheck and lint before tests where they exist. **Never invent
+     a command the project doesn't declare.** If there is no harness at all, post
+     `orch post --agent orchestrator --kind warning --msg "no test harness found at
+     <path>, skipping verification — manual check needed"`, treat the merge as
+     unverified, and ask the human before marking `merged` — never silently mark green.
+     For npm projects run `python <path>/orch.py deps` first if `node_modules` is
+     stale or missing, so the suite doesn't fail for absent deps. Record the exact
+     command and exit code in the merge report; a non-zero exit is "tests fail" below.
    - Merge/resolve clean and tests pass → update the linked Linear issue (via the Linear
      MCP), then `orch task update --task <id> --status merged`.
    - **Clean up the worktree — best-effort, never blocking.** Read the task's

@@ -156,19 +156,14 @@ the same permission allowlist Mattia already approved here. If the source repo h
 such file and its `.mcp.json` exists, write `{"enableAllProjectMcpServers": true}` into
 the worktree's copy instead.
 
-**Take the repo root from `git rev-parse --show-toplevel`, never from `$PWD`.** On
-Windows a path can reach you with the wrong casing — the same folder, a different
-string. The recurring one is `ProgettoCOntrattiAdesione`, a typo for the real folder
-`C:\Users\MattiaDaCampo\Documents\Publiscoop\ProgettoContrattiAdesione`: lowercase
-`o` in `Contratti`. `rev-parse` returns git's canonical casing; PowerShell's
-`Resolve-Path` and `Get-Item` just echo whatever casing you handed them, and stale
-`~/.claude.json` entries carry the typo forward — so never copy a casing out of a
-prompt, a typed path, or that file. Casing matters because Claude Code maps a
-worktree back to its main repo by comparing realpaths, and Node on Windows doesn't
-canonicalise case: one wrong letter and the mapping fails, the worktree counts as an
-unknown folder, and the new tab stalls on **"Do you trust the files in this folder?"**
-with nobody there to answer. Get the casing right and the worktree inherits the repo's
-trust silently.
+**Take the repo root from `git rev-parse --show-toplevel` — never from `$PWD`, a typed
+path, or `~/.claude.json`.** On Windows all three can carry the wrong casing for the
+same folder, and `Resolve-Path`/`Get-Item` just echo back whatever casing you handed
+them. Claude Code maps a worktree to its main repo by comparing realpaths, and Node on
+Windows doesn't canonicalise case: one wrong letter and the mapping fails, the worktree
+counts as an unknown folder, and the new tab stalls on **"Do you trust the files in this
+folder?"** with nobody there to answer. `rev-parse` returns git's canonical casing, so
+the worktree inherits the repo's trust silently.
 
 **Use `git`, not `herdr worktree create`.** `git -C "$REPO"` names the source repo
 explicitly, from your own process. `herdr worktree create` without `--cwd` resolves it
