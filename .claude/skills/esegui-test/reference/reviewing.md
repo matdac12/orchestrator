@@ -102,6 +102,6 @@ Finally `sandbox.sh down` (base image stays cached).
 ---
 
 ## Notes
-- The planner is the agent running the skill — it runs at the session model, so launch the skill under a strong model (Opus) for good missions. Delegates are always spawned as `DELEGATE_MODEL`.
+- The planner is the agent running the skill — it runs at the session model, so launch the skill under a strong model for good missions. Delegates are always spawned as `DELEGATE_MODEL`.
 - Missions run **sequentially** with a `reset` between them — bounded machine load and bounded spend. Don't fan out in parallel (shared app + DB; they'd collide).
 - If the user just wants one specific check, that's a brief with one obvious mission — same machinery.
