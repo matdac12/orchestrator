@@ -30,7 +30,7 @@ python "$S" log --project-id 6a21... --date 2026-08-07 --start 08:30 --end 12:30
    **0.60**, or when the runner-up is within **0.10** of it — a near-tie means
    the fragment was ambiguous, not that you should pick. `projects` bare gives
    his recent six for when he doesn't know what the thing is called. Never dump
-   all 58.
+   the full project list.
 
    Do not infer the project from the repo you happen to be in. He logs meetings,
    calls and analysis from directories that have nothing to do with the client.
