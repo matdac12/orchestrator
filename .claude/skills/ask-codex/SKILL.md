@@ -82,12 +82,12 @@ must locate every finding without re-deriving it):
 3. A finding without a file+line+quote citation is invalid — omit it or mark
    it explicitly as UNVERIFIED SPECULATION.
 EOF
-codex exec -C "<repo dir>" -m gpt-5.6-sol -c model_reasoning_effort="<medium|high>" \
+codex exec -C "<repo dir>" -m gpt-6-astra -c model_reasoning_effort="<low|medium>" \
   --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
   -o "$OUT" - < "$P"
 ```
 
-Pick `<medium|high>` per the **review presets** below. Keep `-m`/`-c` *before*
+Pick `<low|medium>` per the **review presets** below. Keep `-m`/`-c` *before*
 `--dangerously-bypass-approvals-and-sandbox` so the literal flag stays intact and the
 permission allowlist still matches.
 
@@ -141,28 +141,32 @@ Don't re-diagnose these from scratch each session — they're the same four ever
 
 ## Review presets: model + reasoning effort
 
-Two knobs, both verified on this machine (2026-07-10):
+Two knobs, both verified on this machine (2026-07-10, model lineup updated 2026-09-06):
 
-- **Model** — `-m <slug>`. Your ChatGPT account is entitled to the GPT-5.6 family
-  (`gpt-5.6-sol` flagship, `gpt-5.6-terra` mid, `gpt-5.6-luna` cheap/fast) plus the older
-  `gpt-5.5`. A slug the account can't use fails fast with a 400 ("… not supported when
-  using Codex with a ChatGPT account") — so a typo can't silently downgrade you.
-- **Reasoning effort** — `-c model_reasoning_effort="<value>"`, one of
-  `none | minimal | low | medium | high | xhigh` (CLI ceiling is `xhigh`; the `Max`/`Ultra`
-  levels in OpenAI's docs are interactive-picker only and don't apply to `codex exec`). A
-  bad value fails fast with a 400 listing the enum. Higher effort visibly costs more tokens.
+- **Model** — `-m <slug>`. OpenAI shipped **GPT-6 Astra** (`gpt-6-astra`) on 2026-09-03/04
+  as the new flagship, succeeding the GPT-5.6 family (`gpt-5.6-sol`/`-terra`/`-luna`) for
+  reasoning, coding, and agentic work. Use `gpt-6-astra` for reviews now. This machine's
+  entitlement to it hasn't been separately re-verified — a slug the account can't use
+  fails fast with a 400 ("… not supported when using Codex with a ChatGPT account"), so a
+  bad pick can't silently downgrade you; if `gpt-6-astra` 400s, fall back to `gpt-5.6-sol`
+  and tell the human.
+- **Reasoning effort** — `-c model_reasoning_effort="<value>"`. Astra's full range is
+  `low | medium | high | xhigh | max` (no `none`/`minimal` — those 400 on Astra), but
+  **this skill only ever uses `low` or `medium`** for Astra: it's an expensive, very
+  capable model, and `high`/`xhigh`/`max` are not worth the cost for a review. A bad
+  value fails fast with a 400 listing the enum. Higher effort visibly costs more tokens.
 
-**For reviews, always use `gpt-5.6-sol`** — it's the flagship built for advanced coding and
-security work, i.e. exactly adversarial review. (Terra/Luna are entitlement facts, not
-review options: sol at `medium` is more token-efficient and reviews better.)
+**For reviews, always use `gpt-6-astra`** — it's the current flagship built for advanced
+coding and security work, i.e. exactly adversarial review. (Sol/Terra/Luna remain fallback
+options if Astra isn't entitled or 400s on this account.)
 
 | Preset | `model_reasoning_effort` | Use when |
 |--------|--------------------------|----------|
-| **Standard** | `medium` | Almost every review — this is the correct choice ~all the time. Routine *and* large diffs, security passes, refactors, checkpoint reviews, "sanity-check this". When in doubt, medium. |
-| **Deep** | `high` | Extremely hard cases only: (a) the human explicitly asked for a deep/hard adversarial pass, or (b) the target is a suspected subtle bug — races, corrupted state, unreproducible failures — where a medium pass or your own analysis already came up empty. |
+| **Standard** | `low` | Almost every review — this is the correct choice ~all the time. Routine *and* large diffs, security passes, refactors, checkpoint reviews, "sanity-check this". Astra at `low` is already a very capable review; when in doubt, low. |
+| **Deep** | `medium` | Extremely hard cases only: (a) the human explicitly asked for a deep/hard adversarial pass, or (b) the target is a suspected subtle bug — races, corrupted state, unreproducible failures — where a `low`-effort pass or your own analysis already came up empty. |
 
-**`high` visibly costs several× the time and tokens of `medium`** — that cost must be
-justified before you pick it. "Security-sensitive" or "big diff" alone does NOT justify
+**`medium` visibly costs several× the time and tokens of `low`** on Astra — that cost must
+be justified before you pick it. "Security-sensitive" or "big diff" alone does NOT justify
 Deep; those are Standard. Deep is an escalation, not a classification. State which preset
 you used when you report findings, so the human knows how hard Codex looked.
 
