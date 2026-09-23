@@ -16,7 +16,7 @@ is blocked", "this branch is ready to merge"). It's fragile and the thread gets 
 A single shared source of truth: a small standard-library Python CLI (`orch.py`, no
 `pip install`) backed by **one global SQLite DB** at `~/.orchestrator/state.db`. Every
 session — in any project — reads and writes the same DB, so the orchestrator sees
-**live** state. On top of the CLI, four skills turn this into an autonomous loop.
+**live** state. On top of the CLI, four skills drive it, one pass per invocation.
 
 ## How it works
 
@@ -48,7 +48,7 @@ queued → discussing → executing → done → merged     (+ blocked)
   isolated branches and don't clobber each other.
 - **Human in the loop only where judgment matters** — planning and blockers; everything
   else is autonomous.
-- **Self-paced loops** — `/loop` reschedules itself; no tight polling that burns tokens.
+- **One pass per invocation** — each skill does its cycle and stops; nothing polls.
 - **Standard library only** — runs anywhere with Python 3.8+, zero dependencies.
 
 ## Getting started
@@ -68,9 +68,9 @@ queued → discussing → executing → done → merged     (+ blocked)
    env vars, no relaunch.** This is what makes the multi-project, multi-window setup
    painless. `orch prompt --agent A` / `--orchestrator` prints the exact per-window
    setup if you want it.
-3. **Open each window inside its checkout and start the loop** — nothing else to wire:
-   - orchestrator window (run inside the project's main checkout): `/loop /orchestrate`
-   - each worker window (A/B/C): `/loop /work A`
+3. **Open each window inside its checkout and run the skill** — nothing else to wire:
+   - orchestrator window (inside the project's main checkout): `/orchestrate`
+   - each worker window (A/B/C): `/work A`
 
    The orchestrator window queues 2-3 parallel kickoffs with you on start. Workers pass
    `--agent A` themselves; the project resolves from the linked directory. (`ORCH_PROJECT`
@@ -109,7 +109,7 @@ The DB lives at `~/.orchestrator/state.db` (override with the `ORCH_DB` env var)
 | `progress --agent A --phase P [--step N --step-total M --msg --next --task --json]` | record what this worker is doing and how far into its plan it is; phases: `setup` `investigation` `planning` `awaiting_approval` `implementation` `checkpoint` `blocked`. Never changes task status, never pings the human |
 | `post` | append an event; updates the task on `--status`/`--branch`; `--kind status\|note\|blocker\|handoff\|needs_discussion\|needs_human\|warning` |
 | `status [--json]` | current agent/task state + recent events; surfaces a `WAITING ON YOU` banner |
-| `prompt --agent A \| --orchestrator` | print a self-contained, terminal-readable bootstrap prompt (repo path, identity vars, loop cmd, queued task) |
+| `prompt --agent A \| --orchestrator` | print a self-contained, terminal-readable bootstrap prompt (repo path, identity, the slash command to run, queued task) |
 | `wait [--timeout --interval]` | block until project state changes (new event / task transition) or timeout; exit 0 on change, 2 on timeout |
 | `log [--agent -n]` | recent event feed |
 | `notify --msg ... [--title ...]` | send a Telegram ping (dry-run if no token) |
@@ -139,13 +139,13 @@ A: executing — Progress reporting [feat/progress]
      next: status output · 12m ago
 ```
 
-## Skills (the autonomous loop)
+## Skills
 
-- **`/work <AGENT>`** — run a worker window as `/loop /work A`. Polls for its task,
+- **`/work <AGENT>`** — run a worker window as `/work A`. Picks up its task,
   brainstorms with you on a kickoff, then executes the plan and reports. For
   dated/old issues it does an **investigation-first** pass (gap-analysis code-vs-issue,
   no code) and confirms scope with you before building, to avoid re-shipping work.
-- **`/orchestrate`** — run the orchestrator window as `/loop /orchestrate`. Merges
+- **`/orchestrate`** — run the orchestrator window as `/orchestrate`, once per event. Merges
   finished branches, updates Linear, and pings you for direction or blockers. Its
   kickoffs follow a **collision-avoidance convention**: pre-assign each task's branch
   (and migration name) and state explicit file boundaries ("owns X; do NOT touch Y,
@@ -155,10 +155,9 @@ A: executing — Progress reporting [feat/progress]
   <message>` for a structured progress update; no flags to remember.
 - **`/checkpoint`** — worker post-work flow: code review → optional Codex review →
   commit → auto-report `done`. Does not touch Linear (the orchestrator owns that).
-- **`/agent-handoff`** — spawn a named background `claude` session with a given
-  prompt. Standalone (no orchestrator knowledge) — use it any time you want to hand
-  off work without opening a pane by hand. `/orchestrate` uses it to delegate
-  kickoffs when you ask it to.
+- **`/agent-handoff`** — hand off work as a markdown document in the repo plus a short
+  prompt pointing at it: paste the prompt yourself, or (in Herdr) have it spawn an
+  agent in a new tab. Standalone (no orchestrator knowledge).
 
 All five live in `.claude/skills/`.
 

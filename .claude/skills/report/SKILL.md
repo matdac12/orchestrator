@@ -8,7 +8,7 @@ user-invocable: true
 
 Report your progress to the orchestrator. You are a worker agent; pass your worker
 letter as `--agent <AGENT>` (the letter you were invoked with as `/work <AGENT>`). The project resolves
-from your linked directory — no env vars needed. Resolve `<path>` = the orchestrator
+from your linked directory. Resolve `<path>` = the orchestrator
 repo path (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current project).
 
 ## Usage
@@ -32,7 +32,10 @@ repo path (`C:/Users/MattiaDaCampo/Documents/orchestrator` — NOT your current 
 
 - `blocked` automatically pings the human on Telegram — use it only when you truly need
   intervention.
-- Keep messages short; report often so the orchestrator and dashboard stay live.
+- Report when the orchestrator should know something: you moved to a new phase or
+  plan task, hit a blocker, made a decision it would want to hear about, or found
+  something that changes the scope. Not on a timer, and not for routine steps. Keep
+  messages short.
 - Progress never changes the task's status and never pings the human — it is
   telemetry the orchestrator reads. Use `/report blocked` when you actually need
   intervention (that one also records a `blocked` phase for you).

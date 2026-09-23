@@ -21,10 +21,9 @@ repo to run it, because the project is inferred from your working directory and 
 directory is nobody's checkout.
 
 Your identity is `<AGENT>` (the skill argument) — pass it as `--agent <AGENT>` on every
-command (this skill already does). The project is inferred from your working directory
-once it's linked, so you need NO env vars and NO relaunch.
+command (this skill already does). The project resolves from your linked directory.
 
-## Preflight (run once, at the start — do NOT skip)
+## Preflight (once, at the start)
 
 0. **Detect the environment.** Run `test "${HERDR_ENV:-}" = 1 && echo herdr`. If it
    prints `herdr` you are in a Herdr-managed pane and the steps marked **(Herdr)**
@@ -39,8 +38,7 @@ once it's linked, so you need NO env vars and NO relaunch.
    from inside a worktree** — it rebinds the project's shared root to wherever it's
    run, silently breaking resolution for every other agent; the CLI refuses
    this, but if you ever see the error while inside a worktree, `cd` to the main
-   checkout and link from there instead. (`ORCH_PROJECT` still works as an override if
-   you ever need it.)
+   checkout and link from there instead.
 
 ## One cycle
 
@@ -203,14 +201,14 @@ If you cannot proceed at any point:
   and report `done`.
 - The human is only present for the brainstorm/plan-approval. Everything after
   approval is autonomous.
-- Report via `/report` for lifecycle (`executing`/`done`/`blocked`) and via
-  `orch progress` at phase boundaries and each plan task, so the orchestrator and
-  dashboard stay live. There is no heartbeat — report at boundaries, not on a timer.
+- Report when the orchestrator should know something: lifecycle changes via `/report`
+  (`executing`/`done`/`blocked`), and `orch progress` when you move to a new phase or
+  plan task, make a decision it would want to hear about, or find something that
+  changes the scope. Not on a timer, and not for routine steps.
 - **Progress is telemetry: never let it stop the work.** If an `orch progress` call
   fails, retry it once. If it fails again, post
   `orch post --agent <AGENT> --kind warning --msg "progress write failed: <why>"`
   if you can, then carry on with the actual task. A failed progress write is never
   a reason to report `blocked`, and never a reason to stop.
 - Pass `--agent <AGENT>` explicitly; the project resolves from your linked directory
-  (see Preflight). No env vars or relaunch are needed. `ORCH_PROJECT`/`ORCH_AGENT` still
-  work as overrides if set.
+  (see Preflight). `ORCH_PROJECT`/`ORCH_AGENT` override both when set.

@@ -34,7 +34,7 @@ expected: a file downloads (or a clear success state); no console error, no HTTP
 Rules for good missions:
 - **Diff-scoped.** Every mission traces to something the diff touched (a new control, a changed query, a touched route) or a direct second-order effect. Don't test unrelated features.
 - **Adversarial by default.** Bad input, empty state, double-click, the boundary the change introduced — not just the happy path. Set `lens` to something else only when a mission is genuinely non-adversarial.
-- **Few.** Prefer 2–5 sharp missions over a broad sweep. Each mission = one Sonnet 5 delegate = real tokens + wall-clock (they run sequentially). Say so if you're deliberately capping coverage.
+- **Few.** Prefer 2–5 sharp missions over a broad sweep. Each mission = one `DELEGATE_MODEL` delegate = real tokens + wall-clock (they run sequentially). Say so if you're deliberately capping coverage.
 - **Self-contained.** A delegate gets only its mission + the sandbox URL — bake in what it needs (which page, which control, the seeded creds hint).
 
 ### The gate
@@ -46,7 +46,7 @@ Rules for good missions:
 
 ## 2. Delegate — run one mission
 
-Spawn **one subagent per mission**, sequentially, using `DELEGATE_MODEL` from the recipe (default `claude-sonnet-5`). Before each delegate: `sandbox.sh reset` so it starts from a clean, seeded DB (adversarial missions mutate state). `reset` recreates the data services, re-runs the seed per `SEED_STRATEGY` (`MIGRATE_CMD`/`SEED_CMD` in-container), restarts the app in place (fresh DB pool, same `SANDBOX_URL`), and re-polls `HEALTH_PATH` — so a mission never starts against a half-reset app. It fails loudly if health doesn't come back.
+Spawn **one subagent per mission**, sequentially, using `DELEGATE_MODEL` from the recipe. Before each delegate: `sandbox.sh reset` so it starts from a clean, seeded DB (adversarial missions mutate state). `reset` recreates the data services, re-runs the seed per `SEED_STRATEGY` (`MIGRATE_CMD`/`SEED_CMD` in-container), restarts the app in place (fresh DB pool, same `SANDBOX_URL`), and re-polls `HEALTH_PATH` — so a mission never starts against a half-reset app. It fails loudly if health doesn't come back.
 
 Give the delegate: the **mission**, the **`SANDBOX_URL`** and **`EVIDENCE_DIR`** from `up`, the **seeded auth creds** if `up` printed them (`TEST_USER`/`TEST_PASSWORD`/`LOGIN_PATH`/`POST_LOGIN_PATH` — pass them verbatim so the delegate can log in), and a pointer to `reference/driving-the-app.md`. The delegate:
 - If the app has auth, **logs in first** through the real form with the seeded creds (per `driving-the-app.md` → "Logging in"), then runs the mission steps.

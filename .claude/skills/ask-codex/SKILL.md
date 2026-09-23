@@ -1,6 +1,6 @@
 ---
 name: ask-codex
-description: Use when the human asks you to consult Codex for a code review, a second opinion, or an adversarial critique of an approach/design. Read-only review/investigation only — tells you exactly how to reach Codex via the plain CLI on this machine, and what to do with the result. Does not delegate fixes/edits (that's a separate, not-yet-built skill).
+description: Use when the human asks you to consult Codex for a code review, a second opinion, or an adversarial critique of an approach/design. Read-only review/investigation only — tells you exactly how to reach Codex via the plain CLI on this machine, and what to do with the result. Review only — never delegates fixes or edits to Codex.
 user-invocable: true
 ---
 
@@ -141,24 +141,16 @@ Don't re-diagnose these from scratch each session — they're the same four ever
 
 ## Review presets: model + reasoning effort
 
-Two knobs, both verified on this machine (2026-07-10, model lineup updated 2026-09-06):
+Two knobs:
 
-- **Model** — `-m <slug>`. OpenAI shipped **GPT-6 Astra** (`gpt-6-astra`) on 2026-09-03/04
-  as the new flagship, succeeding the GPT-5.6 family (`gpt-5.6-sol`/`-terra`/`-luna`) for
-  reasoning, coding, and agentic work. Use `gpt-6-astra` for reviews now. This machine's
-  entitlement to it hasn't been separately re-verified — a slug the account can't use
-  fails fast with a 400 ("… not supported when using Codex with a ChatGPT account"), so a
-  bad pick can't silently downgrade you; if `gpt-6-astra` 400s, fall back to `gpt-5.6-sol`
-  and tell the human.
-- **Reasoning effort** — `-c model_reasoning_effort="<value>"`. Astra's full range is
-  `low | medium | high | xhigh | max` (no `none`/`minimal` — those 400 on Astra), but
-  **this skill only ever uses `low` or `medium`** for Astra: it's an expensive, very
-  capable model, and `high`/`xhigh`/`max` are not worth the cost for a review. A bad
-  value fails fast with a 400 listing the enum. Higher effort visibly costs more tokens.
-
-**For reviews, always use `gpt-6-astra`** — it's the current flagship built for advanced
-coding and security work, i.e. exactly adversarial review. (Sol/Terra/Luna remain fallback
-options if Astra isn't entitled or 400s on this account.)
+- **Model** — `-m gpt-6-astra` for every review. An account that isn't entitled to a
+  slug fails fast with a 400 ("… not supported when using Codex with a ChatGPT
+  account"), so a bad pick can't silently downgrade you; on that 400, fall back to
+  `gpt-6-sol` and tell the human.
+- **Reasoning effort** — `-c model_reasoning_effort="<value>"`. Astra and Sol accept
+  `low | medium | high | xhigh | max | ultra`. This skill uses only `low` or `medium`:
+  these models are expensive, and higher settings aren't worth it for a review. A bad
+  value fails fast with a 400 listing the enum.
 
 | Preset | `model_reasoning_effort` | Use when |
 |--------|--------------------------|----------|

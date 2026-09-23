@@ -322,7 +322,8 @@ class CLITest(unittest.TestCase):
         out = run(["prompt", "--project", "demo", "--agent", "A"], self.db)
         self.assertEqual(out.returncode, 0)
         self.assertIn("link demo", out.stdout)
-        self.assertIn("/loop /work A", out.stdout)
+        self.assertIn("/work A", out.stdout)
+        self.assertNotIn("/loop", out.stdout)
         self.assertIn("build login", out.stdout)
         self.assertIn("LIN-9", out.stdout)
         self.assertIn("start with the API", out.stdout)
@@ -332,7 +333,8 @@ class CLITest(unittest.TestCase):
         run(["init", "demo"], self.db)
         out = run(["prompt", "--project", "demo", "--orchestrator"], self.db)
         self.assertEqual(out.returncode, 0)
-        self.assertIn("/loop /orchestrate", out.stdout)
+        self.assertIn("/orchestrate", out.stdout)
+        self.assertNotIn("/loop", out.stdout)
         self.assertIn("link demo", out.stdout)
 
     def test_prompt_requires_agent_or_orchestrator(self):

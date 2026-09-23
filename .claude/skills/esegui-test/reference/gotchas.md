@@ -62,7 +62,7 @@ where the server actually listens. In the sandbox the browser is on the **publis
 looks broken even though auth succeeded. This is usually a **product** bug worth
 reporting (it also bites real reverse-proxy deploys): prefer a **relative** Location
 (browsers resolve it against the address-bar URL) or derive the origin from the
-`Host`/`X-Forwarded-Host` header, not from the socket. Distinguish it from the recipe-side cookie/CORS issues below.
+`Host`/`X-Forwarded-Host` header, not from the socket. Distinguish it from the recipe-side cookie/CORS issues above.
 
 ## Snapshot: real data must be MASKED, runtime-loaded, and never committed/baked
 `SEED_STRATEGY=snapshot` is the only sanctioned way to get real data into the sandbox,
@@ -82,8 +82,8 @@ rejected, suspect the recipe/seed — not the product. Usual causes: the seed wr
 the wrong password-hash format (app uses bcrypt, seed wrote plaintext/SHA-256), the
 user wasn't created **confirmed** (app blocks unconfirmed logins and the delegate
 can't click an email link), or the seed didn't run at all. Fix the seed; don't file
-a product finding. Genuine product-side login failures (cookie won't stick over
+a product finding. The other sandbox-side login failures (cookie won't stick over
 HTTP, CORS rejects the sandbox origin) are covered above under "Login fails".
 
 ## Review mode: keep the mission list small
-Each mission is a real delegate subagent (Sonnet 5 by default) plus a sandbox reset — cost and wall-clock scale with mission count, and they run one at a time. Prefer 2–5 sharp, diff-scoped missions over a broad sweep. If you cap coverage, say so in the report.
+Each mission is a real delegate subagent plus a sandbox reset — cost and wall-clock scale with mission count, and they run one at a time. Prefer 2–5 sharp, diff-scoped missions over a broad sweep. If you cap coverage, say so in the report.

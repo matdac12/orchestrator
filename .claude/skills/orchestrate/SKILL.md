@@ -20,10 +20,10 @@ Call it by that absolute path from wherever you are — never `cd` into the orch
 repo to run it, because the project is inferred from your working directory and that
 directory is nobody's checkout.
 
-The project is inferred from your working directory once it's linked — no env vars, no
-relaunch. `ORCH_PROJECT` still works as an override.
+The project is inferred from your working directory once it's linked; `ORCH_PROJECT`
+overrides it.
 
-## Preflight (run once, at the start — do NOT skip)
+## Preflight (once, at the start)
 
 0. **Detect the environment.** Run `test "${HERDR_ENV:-}" = 1 && echo herdr`. If it
    prints `herdr`, you are inside a Herdr-managed pane: every section below marked
@@ -45,7 +45,7 @@ relaunch. `ORCH_PROJECT` still works as an override.
    `origin/<name>`, strip the `origin/` prefix → that's `<defaultBranch>`. Otherwise
    try `git remote show origin 2>/dev/null | sed -n 's/.*HEAD branch: //p'` as
    fallback. If both fail, use `main` and warn the human. Treat `main`/`master`
-   as aliases of the same concept (see `orch/report.py:9` `DEFAULT_BRANCH_NAMES`);
+   as aliases of the same concept (see `DEFAULT_BRANCH_NAMES` in `orch/report.py`);
    use `<defaultBranch>` everywhere below — never hardcode `main`.
 
 ## (Herdr) Naming — labels are the dashboard
@@ -156,7 +156,7 @@ The human names the agent/task that just finished (e.g. "agent A is done"). Act 
 2. For the named task (status `done`):
    - **Note the rollback point first:** `git rev-parse <defaultBranch>` (from
      Preflight step 3 — this returns a full 40-char SHA, which is the only form
-     `hooks/git_guardrails.py:38` allows for `git reset --hard`). You need this to
+     `hooks/git_guardrails.py` (`SHA_RESET_RE`) allows for `git reset --hard`). You need this to
      restore `<defaultBranch>` if the merge looks clean but tests fail. Never leave
      `<defaultBranch>` red; only ever advance it on a verified-green result.
    - Review the agent's `branch`. Merge it into `<defaultBranch>`.
@@ -211,7 +211,7 @@ The human names the agent/task that just finished (e.g. "agent A is done"). Act 
      `git reset --hard <rollback SHA from above>` — do not leave a red
      `<defaultBranch>` for other agents to branch off of. (Skip this if you already
      `git merge --abort`ed for an unresolved conflict; there's nothing to restore.
-     This `reset --hard <40-char-SHA>` is the one form `hooks/git_guardrails.py:38`
+     This `reset --hard <40-char-SHA>` is the one form `hooks/git_guardrails.py`
      intentionally allows — any other `reset --hard` shape would be blocked.)
      Then, either way:
      `orch task update --task <id> --status blocked`,
@@ -228,10 +228,8 @@ a finished branch, do this instead of (or after) a merge pass.
 - Reconcile Linear ↔ DB. Propose the next logical step. Identify 2-3 pieces that can
   run in parallel WITHOUT touching the same files.
 - On the human's confirmation, create each kickoff (lean — context only, no plan).
-  **`--title` is REQUIRED on `orch task add`** — a short human-readable name for the
-  task (e.g. `"Login form"`). `orch task add` errors out without it, so never omit it
-  from the command. **`--agent` and `--title` are the only two required flags;**
-  everything else (`--branch`, `--issue`, `--context`, `--status`) is optional but
+  `orch task add` requires `--agent` and `--title` (a short human-readable name, e.g.
+  `"Login form"`); `--branch`, `--issue`, `--context` and `--status` are optional but
   conventionally set as below.
   **Kickoff convention (this is what kept 3 parallel agents from colliding):** in
   every kickoff pre-assign the `--branch` (and the timestamp-migration name if the
@@ -280,12 +278,12 @@ mailbox, and workers don't re-read it mid-cycle.
   out of bounds no matter how obvious the answer looks.
 - Never `send-keys` to, close, or restart a worker's pane.
 
-## Delegating to a background agent (optional)
+## Spawning a worker (Herdr only, optional)
 
 After queuing a kickoff, you can start the worker yourself instead of waiting for the
 human to open a pane by hand — but **only when the human says so**; never spawn one
-unasked (they may be driving panes themselves this cycle). Ask how they want it
-spawned before you touch anything.
+unasked (they may be driving panes themselves this cycle). Outside Herdr there is no
+spawn path: the human opens the worker window and runs `/work <letter>` there.
 
 Pick the agent letter from your own context of which agents are currently active (you
 already track this from `orch status` and from talking to the human).
@@ -484,19 +482,6 @@ Bash call, use the literal path the block printed — `$LOGS` itself is gone by 
 Booting N Claude Codes at once is heavier than booting one: on a loaded machine a worker
 can still exceed even the 120s readiness timeout. That agent's log says so and the others
 are unaffected — report the partial spawn rather than tearing the batch down.
-
-### (non-Herdr) — background session
-
-1. `claude agents --json` is an optional cross-check on which letters are live, not a
-   required step.
-2. Invoke `agent-handoff` with:
-   - `name`: `"Agent<letter> - <issue>"` (or the branch name if there's no linked
-     issue)
-   - `prompt`: `"/work <letter>"`
-3. `agent-handoff` spawns it and hands you back `{name, pid, sessionId, cwd, status}`.
-   You don't need to pass — or record — a branch or task id through it: the spawned
-   worker looks up its own task via `orch next --agent <letter>`, which already has
-   the full context, and creates its own worktree in `/work` step 2.
 
 ## Rules
 

@@ -47,24 +47,11 @@ For a brief like *"log in, open the outbound page, click the new Export button"*
 3. **Capture failure signals, not just pixels.** After each step pull console messages and network activity. Write `console.log` and `network.json` into `EVIDENCE_DIR`. On any JS error or HTTP ≥ 400, also save `ERROR-<step>.png`. A screenshot shows *that* it broke; console/network show *why*.
 4. **Assert per step:** element present? URL changed? expected text rendered? Record ✓ / ⚠ with a one-line reason.
 
-## REPORT.md (write into EVIDENCE_DIR)
+## What to return
 
-```markdown
-# Visual test — <repo> @ <short-sha> — <timestamp>
-Brief: "<the user's checklist, verbatim>"
-Sandbox: <SANDBOX_URL>
-
-| # | Step | Result | Evidence | Note |
-|---|------|--------|----------|------|
-| 1 | Load /login | ✓ | 01-login.png | |
-| 2 | Log in (seed user) | ✓ | 03-dashboard.png | redirected to /dashboard |
-| 3 | Open /outbound | ✓ | 04-outbound.png | |
-| 4 | Click Export | ⚠ | ERROR-4.png, network.json | POST /api/export → 500 |
-
-**Verdict:** ⚠ 1 issue — Export returns 500 (see network.json req #12).
-```
-
-Then report the verdict to the user inline and, for UI steps, show the key screenshot(s). Keep evidence per-run under `EVIDENCE_DIR` so runs form a visual history.
+Return one finding in the shape `reviewing.md` §2 defines — verdict, summary,
+evidence filenames, and on failure a runnable repro spec plus a short fix hint.
+Keep evidence under `EVIDENCE_DIR`. The planner aggregates and reports; you don't.
 
 ## Notes
 

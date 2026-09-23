@@ -143,8 +143,7 @@ Resolve `<path>` = the orchestrator repo path
 inside the target project but `orch.py` lives in the orchestrator repo). Call it by
 that absolute path — never `cd` into the orchestrator repo to run it, which breaks
 the directory-based project inference. Pass your worker letter as `--agent <AGENT>`
-(the letter you were invoked with as `/work <AGENT>`); the project resolves from your linked directory — no env vars
-needed. (If a command reports `can't infer the project`, run
+(the letter you were invoked with as `/work <AGENT>`); the project resolves from your linked directory. (If a command reports `can't infer the project`, run
 `python <path>/orch.py link <project>` once in this checkout.)
 
 **Report the phase as you go.** At the start of Step 1:
@@ -157,11 +156,8 @@ says it.
 
 ## Step 1 — Self-Review (quality, then correctness)
 
-**You cannot run `/code-review` here.** Since Claude Code v2.1.215 it is flagged
-`disable-model-invocation`: when an agent emits `/code-review` it is treated as plain
-text, not dispatched — the command only fires when a human types it (or via the
-headless SDK/CLI, which you are not). So do this two-part, model-invocable review
-instead, **in this order**:
+**You cannot run `/code-review` here** — it is human-invocable only, so an agent
+emitting it just prints text. Do this two-part review instead, **in this order**:
 
 **1a — Quality pass.** Invoke the `simplify` skill on the changed code (reuse,
 simplification, efficiency, and altitude cleanups) and apply its fixes. Quality only —

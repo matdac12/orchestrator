@@ -42,12 +42,12 @@ Orchestrator repo (CLI + skills): {repo_path}
 All orch commands run as: python {repo_path}/orch.py <cmd>
 
 SETUP (once per checkout) - bind this directory to the project so every command
-knows where it is. No env vars, no relaunch needed:
+knows where it is:
   cd <your local checkout of the {project} project>   # work INSIDE the target project
   python {repo_path}/orch.py link {project}
 
-Then just start the loop in Claude Code:
-  /loop /work {agent}
+Then run it in Claude Code (one cycle per invocation; re-run it to resume):
+  /work {agent}
 
 You are agent {agent}: pass `--agent {agent}` on commands (the skills already do).
 
@@ -65,12 +65,12 @@ Orchestrator repo (CLI + skills): {repo_path}
 All orch commands run as: python {repo_path}/orch.py <cmd>
 
 SETUP (once) - bind this directory to the project. You merge branches, so run inside
-the target project's git checkout. No env vars, no relaunch needed:
+the target project's git checkout:
   cd <your local checkout of the {project} project>
   python {repo_path}/orch.py link {project}
 
-Then start the loop in Claude Code:
-  /loop /orchestrate
+Then, whenever an agent finishes or you want to queue work, run in Claude Code:
+  /orchestrate
 
 You own integration only: merge `done` branches into main + run tests, reconcile
 Linear, and ping the human on blockers. You never write specs, plans, or feature

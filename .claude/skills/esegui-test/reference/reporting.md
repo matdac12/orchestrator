@@ -2,7 +2,7 @@
 
 After the aggregator has all findings (see `reviewing.md` §3), it produces **three** outputs:
 
-1. **`REVIEW.md`** — the agent-facing summary (unchanged; the orchestrator/`work` agent parses it to decide merge-or-fix).
+1. **`REVIEW.md`** — the agent-facing summary, for whichever agent acts on the findings.
 2. **`review.html`** — a self-contained, human-facing visual report (screenshots inlined, a storyboard per mission, repros + fixes). Always written to `EVIDENCE_DIR`.
 3. **A published Artifact** — when the `Artifact` tool is available, `review.html` is published to a shareable claude.ai URL. When it isn't (autonomous/headless run), just report the local path.
 
@@ -52,7 +52,7 @@ If the **`Artifact`** tool is available, publish the file:
 - `favicon` = `🔎` (keep it stable across runs)
 - `description` = the verdict in one line (e.g. "Visual review — 1 of 3 missions failed")
 
-Return the artifact URL to the user. **The report is already designed** (built per the `artifact-design` fundamentals), so you do NOT need to reload `artifact-design` or restyle — just publish the file as-is.
+Return the artifact URL to the user. The template already carries the design — publish the file as-is.
 
 If the `Artifact` tool is **not** available (autonomous/headless), skip publishing and report the local path (`EVIDENCE_DIR/review.html`) — it's fully self-contained and opens in any browser.
 

@@ -1,6 +1,6 @@
 ---
 name: agent-handoff
-description: Hand off work to another agent as a markdown handoff document in the repo (context summary, or a task brief for a fresh agent) plus a short prompt pointing at it — either handed to you to paste anywhere, or sent automatically to an agent spawned in a new Herdr tab in this workspace, on this checkout or on its own worktree. Also spawns a named background `claude` session when a caller supplies the prompt. Standalone — no orchestrator/project knowledge required.
+description: Hand off work to another agent as a markdown handoff document in the repo (context summary, or a task brief for a fresh agent) plus a short prompt pointing at it — either handed to you to paste anywhere, or (in Herdr) sent automatically to an agent spawned in a new tab in this workspace, on this checkout or on its own worktree. Standalone — no orchestrator/project knowledge required.
 disable-model-invocation: true
 user-invocable: true
 argument-hint: "What will the next session focus on?"
@@ -11,36 +11,23 @@ argument-hint: "What will the next session focus on?"
 Hand the current work to another agent. The handoff itself is always a markdown
 document in the repo plus a short prompt pointing at it; what varies is delivery —
 Mattia pastes the prompt himself, or (in Herdr) a fresh agent is spawned in a tab
-and sent it. The plain-terminal `claude --bg` path is the exception: it forwards a
-caller-supplied prompt and writes nothing.
+and sent it.
 
 ## Step 0 — Detect the environment, then ask which path
 
 Run `test "${HERDR_ENV:-}" = 1 && echo herdr` once. If it prints `herdr`, you're inside
 a Herdr-managed pane and can spawn a real, visible, promptable agent — use the **Herdr
-question** below. Otherwise use the **classic question**.
+question** below. Otherwise there is only one path — Path 2, prompt to paste — so skip
+the path question and go straight to the document kind.
 
 **If arguments were passed**, treat them as a description of what the next
 session will focus on. Use them to pick the document kind yourself instead of
 asking (a description of work to *do* → task brief; a description of work to
 *continue* → context summary), and tailor the whole document to that focus —
-drop sections of the conversation that don't serve it. Still ask which *path*
-(spawn an agent vs. write a document) unless that's obvious from the arguments too.
-
-Always ask first, unless the invoker already said which one.
+drop sections of the conversation that don't serve it. In Herdr, still ask which
+*path* (new tab vs. prompt to paste) unless that's obvious from the arguments too.
 
 **Ask every one of these with the `AskUserQuestion` tool, not in prose.**
-
-### Classic question (not in Herdr)
-
-Question — *"How do you want to hand this off?"*, header `Handoff`:
-
-- **Background agent** — I write the handoff document and spawn a named `claude --bg` session on it right now (terminal workflow).
-- **Prompt to paste** — I write the handoff document and give you the short prompt to paste into a fresh chat (desktop-app workflow).
-
-Background agent → Path 1, with the document written first and its paste prompt used
-as the spawn prompt. Prompt to paste → Path 2. As in Herdr, both write the document;
-only the delivery differs.
 
 ### Herdr question
 
@@ -63,7 +50,7 @@ branch?"*, header `Isolation`:
 - **Its own worktree** — new branch and checkout, isolated from what you're doing here.
 - **This checkout** — same working directory. For work that needs no isolation.
 
-Tab → Path 1H, with the isolation he chose. Prompt to paste → Path 2.
+Tab → Path 1, with the isolation he chose. Prompt to paste → Path 2.
 
 ### Document kind
 
@@ -72,24 +59,16 @@ Ask this immediately — *"What kind of document?"*, header `Doc kind`:
 - **Context summary** — where we are, what's done, what's next, so a fresh chat can pick up.
 - **Task brief** — instructions for another agent: what to read, what to do, what "done" looks like.
 
-Ask it whenever the human is the one invoking — Path 2, Path 1H and Path 1 alike all
-write a document. Skip it only when a caller supplied the prompt (below). If the
-invocation arguments already make the kind obvious, pick it yourself instead of
-asking.
+Both paths write a document, so always ask it — unless the invocation arguments
+already make the kind obvious, in which case pick it yourself.
 
 Then follow the matching section below.
 
-### When a caller supplied the prompt
-
-If another skill or agent invoked this one with an explicit `prompt` (e.g.
-`/work B`), that prompt is the handoff — send it verbatim, write no document, and
-skip the questions above entirely. The document flow is for the human path.
-
 ---
 
-## Path 1H — Herdr agent (in Herdr only)
+## Path 1 — Herdr agent (in Herdr only)
 
-Takes the same two things as Path 1 — a **name** and a **prompt** — plus the isolation
+Takes an agent **name**, the short **prompt** from the document, and the isolation
 chosen in Step 0. Nothing else: no notion of orchestrators, tasks or tickets.
 
 ### First: write the document
@@ -150,8 +129,7 @@ herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$WT" --label "<Work na
 **Copy `.claude/settings.local.json` across.** It is gitignored, so a fresh worktree
 starts without it — and it is where `enableAllProjectMcpServers` / `enabledMcpjsonServers`
 live. Without them a repo with a `.mcp.json` greets the new agent with **"New MCP servers
-found — do you want to enable them?"**, which blocks startup exactly the way the trust
-dialog used to, with nobody there to press Enter. Copying the file also gives the agent
+found — do you want to enable them?"**, which blocks startup with nobody there to press Enter. Copying the file also gives the agent
 the same permission allowlist Mattia already approved here. If the source repo has no
 such file and its `.mcp.json` exists, write `{"enableAllProjectMcpServers": true}` into
 the worktree's copy instead.
@@ -195,7 +173,7 @@ never guess IDs. Then:
 2. **Send the prompt — the short one.** It is the paste prompt from the document you
    wrote in "First: write the document": two or three lines naming the file and the
    one-line ask, not the document itself. Prefix with `MSYS_NO_PATHCONV=1` when it starts with
-   `/`, for the same reason it is on `claude --bg` in Path 1: through Git Bash an
+   `/`: through Git Bash an
    argument with a leading `/` is rewritten into a Windows path, so a slash-command
    prompt like `/work B` would arrive as `C:/Program Files/Git/work B`. Only a leading
    `/` or `//` is affected — slashes inside the text are safe.
@@ -224,65 +202,16 @@ tab or workspace you didn't create.
 
 ---
 
-## Path 1 — Background agent (not in Herdr)
-
-Takes exactly two things: a **session name** and a **prompt**. Nothing else — no
-notion of the orchestrator, tasks, branches, or worktrees; whoever invokes it
-decides what those two strings are.
-
-When *Mattia* picked this path, write the handoff document first (Path 2) and use
-its paste prompt as the spawn prompt — short, pointing at the file, never the
-document's contents inlined. When a *caller* supplied the prompt, use it verbatim
-and write nothing.
-
-1. **Check for a collision.** Run `claude agents --json` and look for a
-   non-completed session whose `name` matches. If one exists, stop and report it —
-   do not spawn a duplicate. Let whoever invoked you decide (pick a different name,
-   or treat the existing session as the answer).
-2. **Spawn it:**
-
-   ```
-   MSYS_NO_PATHCONV=1 claude --bg --permission-mode auto --name "<name>" "<prompt>"
-   ```
-
-   Always pass `--permission-mode auto` so the spawned session starts in auto
-   mode even if a project-level setting says otherwise.
-
-   Always prefix with `MSYS_NO_PATHCONV=1` when running this through Git Bash
-   (the Bash tool on Windows). Without it, Git Bash's automatic path conversion
-   treats any prompt starting with `/` (e.g. a slash-command prompt like
-   `/work A`) as a POSIX path and rewrites it into a Windows path rooted at the
-   Git install dir — e.g. `/work A` silently becomes
-   `C:/Program Files/Git/work A`, corrupting the prompt the spawned session
-   receives.
-
-3. **Confirm it started.** Run `claude agents --json` again, find the entry whose
-   `name` matches, and read its `pid`, `sessionId`, `cwd`, `status`.
-4. **Report back** `{name, pid, sessionId, cwd, status}` to whoever invoked you (a
-   human, or the skill/agent that called this one).
-
-### Notes
-
-- In Herdr, prefer Path 1H: a `claude --bg` session can't be talked to, whereas a
-  Herdr agent is visible, attachable and promptable by name.
-- Runs in whatever directory you invoke it from — it does not create or manage
-  worktrees. If the target work needs isolation, that's the spawned session's job
-  (or set it up yourself first).
-- If `claude --bg` itself fails to start, report the raw error — never claim success
-  you haven't confirmed via step 3.
-
----
-
 ## Path 2 — Handoff document
 
-**Path 1H uses this whole section too** — it writes the same document and then sends
+**Path 1 uses this whole section too** — it writes the same document and then sends
 the paste prompt to the agent instead of handing it to Mattia. Everything below
 applies to both.
 
 ### Where it goes
 
 `docs/handoff/<YYYY-MM-DD>-<short-kebab-slug>.md`, relative to the repo root
-(the working directory you were invoked in — or, in Path 1H's worktree case, the
+(the working directory you were invoked in — or, in Path 1's worktree case, the
 worktree the agent will run in). Create `docs/handoff/` if it doesn't exist. The
 slug describes the work, not the date — e.g.
 `docs/handoff/2026-08-16-auth-refactor.md`. If that exact path already exists,
@@ -409,7 +338,7 @@ Do not restate the document's contents in the prompt. Two or three lines, max.
 ### Notes
 
 - Write the file with the Write tool, then tell Mattia the path and hand him the
-  paste prompt. Do not commit it unless he asks. In Path 1H, send that same prompt
+  paste prompt. Do not commit it unless he asks. In Path 1, send that same prompt
   to the agent instead of handing it over.
 - If you're not in a git repo, still write to `docs/handoff/` under the working
   directory and drop the Branch field from the header.

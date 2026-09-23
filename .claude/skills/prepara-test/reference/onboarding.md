@@ -70,7 +70,7 @@ The seeded user must be created **already confirmed** (no email-verification
 step), because the delegate can't click a confirmation link. How you seed it
 depends on the app's auth family:
 
-- **Local-Postgres auth (this phase):** the repo's own seed/migration inserts the
+- **Local-Postgres auth:** the repo's own seed/migration inserts the
   confirmed user into the users table. Match the app's password hashing (bcrypt /
   argon2 / a demo SHA-256) — a wrong hash format is the usual "login rejected"
   cause, and that's a recipe bug, not a product bug.
