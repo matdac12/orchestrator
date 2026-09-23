@@ -117,7 +117,9 @@ def _format_status(state):
 
 
 def cmd_status(conn, args):
-    state = db.get_state(conn, _project(conn, args))
+    tasks_limit = None if args.all else args.tasks
+    state = db.get_state(conn, _project(conn, args),
+                         tasks_limit=tasks_limit)
     if args.json:
         print(json.dumps(state, indent=2))
     else:
@@ -323,6 +325,12 @@ def build_parser():
     ps = sub.add_parser("status")
     ps.add_argument("--project")
     ps.add_argument("--json", action="store_true")
+    ps.add_argument("--all", action="store_true",
+                    help="include the full closed-task history "
+                         "(default: active + last --tasks closed)")
+    ps.add_argument("--tasks", type=int, default=10,
+                    help="how many recent closed tasks to include "
+                         "(default 10; ignored with --all)")
     ps.set_defaults(func=cmd_status)
 
     pl = sub.add_parser("log")

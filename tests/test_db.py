@@ -473,6 +473,39 @@ class StateTest(unittest.TestCase):
         self.assertEqual(len(state["events"]), 3)
         self.assertEqual(state["events"][0]["message"], "e9")
 
+    def test_get_state_trims_closed_tasks_to_limit(self):
+        for i in range(5):
+            db.add_task(self.conn, "demo", "A", f"old {i}", status="merged")
+        db.add_task(self.conn, "demo", "A", "live", status="executing")
+        state = db.get_state(self.conn, "demo", tasks_limit=2)
+        self.assertIn("live", [t["title"] for t in state["tasks"]])
+        self.assertEqual(
+            len([t for t in state["tasks"] if t["status"] == "merged"]), 2)
+        self.assertEqual(state["total_tasks"], 6)
+        self.assertEqual(state["tasks_omitted"], 3)
+
+    def test_get_state_never_trims_active_tasks(self):
+        for i in range(5):
+            db.add_task(self.conn, "demo", "A", f"live {i}",
+                        status="executing")
+        state = db.get_state(self.conn, "demo", tasks_limit=2)
+        self.assertEqual(len(state["tasks"]), 5)
+        self.assertEqual(state["tasks_omitted"], 0)
+
+    def test_get_state_no_limit_returns_everything(self):
+        for i in range(5):
+            db.add_task(self.conn, "demo", "A", f"old {i}", status="merged")
+        state = db.get_state(self.conn, "demo", tasks_limit=None)
+        self.assertEqual(len(state["tasks"]), 5)
+        self.assertEqual(state["tasks_omitted"], 0)
+
+    def test_get_state_tasks_scoped_to_project(self):
+        db.create_project(self.conn, "other")
+        db.add_task(self.conn, "other", "A", "elsewhere", status="merged")
+        state = db.get_state(self.conn, "demo")
+        self.assertEqual(state["tasks"], [])
+        self.assertEqual(state["total_tasks"], 0)
+
 
 class ProgressStorageTest(unittest.TestCase):
     def setUp(self):

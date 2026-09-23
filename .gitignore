@@ -10,3 +10,6 @@ docs/handoff/
 
 # Sales call transcripts and summaries
 Sales Call_*
+
+# Local secrets
+.env

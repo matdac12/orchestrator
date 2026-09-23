@@ -397,13 +397,36 @@ def _row_to_dict(row):
     return dict(row) if row is not None else None
 
 
-def get_state(conn, project, events_limit=50):
+def get_state(conn, project, events_limit=50, tasks_limit=10):
+    """Project state snapshot, scoped to `project` only — tasks and events
+    from other projects never leak in.
+
+    `tasks` holds every ACTIVE task (queued/discussing/executing/blocked)
+    plus the most recent `tasks_limit` closed ones (done/merged), newest
+    first. The full history stays in the DB; pass `tasks_limit=None` for
+    the untrimmed dump. `total_tasks` / `tasks_omitted` say how much was
+    left out so callers know there is more."""
     proj = require_project(conn, project)
     pid = proj["id"]
+    placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
 
-    tasks = [dict(r) for r in conn.execute(
-        "SELECT * FROM tasks WHERE project_id = ? ORDER BY updated_at DESC",
-        (pid,))]
+    active = [dict(r) for r in conn.execute(
+        f"SELECT * FROM tasks WHERE project_id = ? "
+        f"AND status IN ({placeholders}) ORDER BY updated_at DESC",
+        (pid, *ACTIVE_STATUSES))]
+    closed_q = (
+        f"SELECT * FROM tasks WHERE project_id = ? "
+        f"AND status NOT IN ({placeholders}) ORDER BY updated_at DESC"
+    )
+    closed_params: tuple = (pid, *ACTIVE_STATUSES)
+    if tasks_limit is not None:
+        closed_q += " LIMIT ?"
+        closed_params = (*closed_params, tasks_limit)
+    closed = [dict(r) for r in conn.execute(closed_q, closed_params)]
+    tasks = sorted(active + closed, key=lambda t: t["updated_at"],
+                   reverse=True)
+    total = conn.execute(
+        "SELECT COUNT(*) FROM tasks WHERE project_id = ?", (pid,)).fetchone()[0]
     for t in tasks:
         t["progress"] = latest_progress(conn, t["id"])
     events = [dict(r) for r in conn.execute(
@@ -435,6 +458,8 @@ def get_state(conn, project, events_limit=50):
         "project": dict(proj),
         "agents": agents,
         "tasks": tasks,
+        "total_tasks": total,
+        "tasks_omitted": total - len(tasks),
         "events": events,
         "waiting": waiting,
     }

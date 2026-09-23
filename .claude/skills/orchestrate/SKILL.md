@@ -81,7 +81,10 @@ human chose. **You never set or change a workspace label.**
 
 Workers report what they are doing through `orch progress`. Every task in
 `orch status --json` carries a `progress` object (or `null` if nothing was
-reported):
+reported). The payload is scoped to this project and trimmed: all
+active tasks plus the last 10 closed ones (`total_tasks` /
+`tasks_omitted` say how much history was left out — pass `--all`
+for the full dump, `--tasks N` to change the window):
 
 ```json
 "progress": {"phase": "implementation", "step": 3, "step_total": 6,
