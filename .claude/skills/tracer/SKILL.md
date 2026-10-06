@@ -9,13 +9,34 @@ From now on this session is the **orchestrator**, working with Mattia in the cur
 
 Unlike `/orchestrate` (one pass, then stop) this session is persistent: you stay in the loop until Mattia ends it. You do not use the orch DB, `/work`, `/report` or Herdr: T3 lets you spawn, read and message threads directly, and the tracker is the shared state.
 
+## The loop
+
+Each piece of work goes round the same loop; keep it in your head and keep several pieces in flight at once:
+
+1. **Plan** with Mattia: what is next, what can run in parallel without touching the same files.
+2. **File** the issue in the tracker.
+3. **Spawn** a worker (inline brief, or a handoff document for big tasks) on the model Mattia picked.
+4. **Wait.** The worker commits locally on its worktree branch and reports back to you.
+5. **Record** the report in the tracker.
+6. **Review** the real diff, tell Mattia what changed, and recommend.
+7. **Merge** locally when he says so, verify with the project's own checks.
+8. **Push** once, after asking, when a batch is merged and green.
+9. **Close** the issue, clean the worktree, propose the next step.
+
+You never code the work yourself, never push anything but the default branch, and never merge or push without Mattia's yes.
+
+## Opening move
+
+After preflight, do not wait silently and do not invent work. Read the tracker's open and in-progress issues, `t3_thread_list` for threads already running, and `git status` plus unmerged branches, then give Mattia a short picture (roll call plus what looks next) and ask what he wants to do. If he already gave a goal with `/tracer`, start at step 1 of the loop with it.
+
 ## Preflight (once, at the start)
 
 1. **Confirm the directory.** `pwd` and `git remote -v`: you must be in the target project's main checkout (you merge into its default branch). If it looks wrong, stop and tell Mattia. Take the repo root from `git rev-parse --show-toplevel`, never from a typed path (Windows casing).
 2. **Resolve the default branch once.** `git symbolic-ref --short refs/remotes/origin/HEAD` (strip `origin/`); fallback `git remote show origin | sed -n 's/.*HEAD branch: //p'`; else `main` and warn. `main`/`master` are aliases. Use `<defaultBranch>` everywhere; never hardcode.
-3. **Pick the tracker.** `/tracer linear` or `/tracer traccia` decides. With no argument, use the project's own docs (`AGENTS.md`, `docs/agents/issue-tracker.md`) if they name one; else, if exactly one of the `linear` / `traccia` MCPs is available, use it; else ask in one line. Say which you chose. Read [trackers.md](trackers.md). If its MCP tools are missing, tell Mattia to restart the session; never fall back to the other tracker.
-4. Read the project's `AGENTS.md` / `CLAUDE.md` for its commands (check, test, deploy), conventions and pitfalls. They override anything generic here.
-5. Read [workers.md](workers.md) before the first spawn.
+3. **Check this session can spawn.** `t3_thread_launch` and project changes are refused (`capability_denied`: "Project launches require a full-access/default calling thread") unless the orchestrator thread itself runs in full-access mode. Read `runtimeMode` from `orchestrator_capabilities` (`jq -r .runtimeMode`); if it is not `full-access`, tell Mattia to switch this thread's mode before you plan any spawn. Do not try workarounds.
+4. **Pick the tracker.** `/tracer linear` or `/tracer traccia` decides. With no argument, use the project's own docs (`AGENTS.md`, `docs/agents/issue-tracker.md`) if they name one; else, if exactly one of the `linear` / `traccia` MCPs is available, use it; else ask in one line. Say which you chose. Read [trackers.md](trackers.md). If its MCP tools are missing, tell Mattia to restart the session; never fall back to the other tracker.
+5. Read the project's `AGENTS.md` / `CLAUDE.md` for its commands (check, test, deploy), conventions and pitfalls. They override anything generic here.
+6. Read [workers.md](workers.md) before the first spawn.
 
 ## Roll call
 
@@ -36,6 +57,7 @@ Planning is collaborative: reconcile the tracker with reality, propose the next 
 
 - **Check what already shipped before designing.** Issues drift: part of one may be done by the time it is picked up. For anything not obviously fresh, have the worker (or yourself, read-only) compare the code against the issue first and report done / partial / missing. If nothing needs building, propose closing the issue.
 - **Kickoff convention (keeps parallel workers from colliding).** Every kickoff pre-assigns the branch and states file boundaries: the files this worker owns AND the files it must not touch because another worker owns them ("do NOT touch X, worker Y owns it"). Include a timestamped migration name if the task adds one.
+- **Dependencies.** If task B needs A's result, do not run them in parallel: spawn B only after A is merged and verified (so B branches from a default branch that contains A), and say so in B's issue. Merge independent branches in any order, dependent ones in dependency order.
 - **Plan gate for big or ambiguous work.** The brief says: investigate, write the plan, report to me and stop until told "go". You relay the plan to Mattia and send the go. Small, clear tasks skip the gate.
 - **Big task → handoff document.** Do not paste a wall of text as the worker's first message. Write a task brief to `docs/handoff/` and send a two-line message pointing at it. See [handoff.md](handoff.md).
 
