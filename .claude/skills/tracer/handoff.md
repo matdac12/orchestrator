@@ -1,72 +1,41 @@
 # Handoff document for big kickoffs
 
-Use it when the brief is more than a screenful: a feature with context, several files, or a lot of "read first". Small, clear tasks keep the inline brief from workers.md.
+For a brief longer than a screenful. The substance lives in a file; the worker's first message is a short pointer, never the contents.
 
-The substance lives in a file; the worker's first message is two or three lines pointing at it. Never send the document's contents as the first message.
+**Where:** `docs/handoff/<YYYY-MM-DD>-<issue-id>-<slug>.md` in the main checkout (today's date from the environment; `-2`, `-3` if it exists). The worker's worktree will not contain this uncommitted file, so reference it by absolute path and tell the worker not to commit it. Plans and specs the worker must follow belong on the branch, not here.
 
-## Where it goes
+**Rules:** reference specs, plans, issues and diffs by path or id instead of copying them. Redact secrets and personal data; name where a credential lives (env var and source), never the value. Write only what is true. List suggested skills only if they genuinely apply.
 
-`docs/handoff/<YYYY-MM-DD>-<issue-id>-<short-kebab-slug>.md` in the **main checkout** (today's date from the environment, not a guess). Create `docs/handoff/` if missing; if the exact path exists, append `-2`, `-3`.
-
-The worker runs in its own worktree, which will not contain this uncommitted file, so reference it by **absolute path** in the message. Do not commit it, and tell the worker not to commit it unless Mattia asks. If the project does not gitignore `docs/handoff/` and Mattia wants it tracked, that is his call.
-
-## Rules
-
-- **Do not duplicate other artifacts.** Specs, plans, ADRs, issues, commits, diffs: reference by path, issue id or URL and say why they matter. Never paste them in; the copy goes stale.
-- **Redact secrets and PII.** Never write keys, tokens, passwords, connection strings, client names, emails or phone numbers. Where the worker needs a credential, say where to find it (the env var name and its source).
-- Only write what is true. No invented progress.
-- **Suggested skills:** list only skills that genuinely apply and say when to use each (e.g. `superpowers:systematic-debugging` before touching the failing test, `/esegui-test` to QA the change). An empty section beats filler.
-
-## Template (task brief)
+**Template:**
 
 ```markdown
-# Task: <short title>
-
-**Date:** <YYYY-MM-DD> · **Repo:** <repo name> · **Issue:** <ISSUE-ID> · **Branch:** <branch> (based on <defaultBranch>)
+# Task: <title>
+**Date** · **Repo** · **Issue** · **Branch** (based on <defaultBranch>) · **Kind** (kinds.md; name the skill)
 
 ## What to do
-The task in 2-5 sentences. Plain, unambiguous.
-
+2-5 plain sentences.
 ## Context you need
-Why this is being asked, and background that is not obvious from the code.
-
+Why, and background not obvious from the code.
 ## Read first
-- `path/to/file.ts` — what to look for in it
-- <issue / doc / URL> — what it covers
-
+- `path` or URL: what to look for
 ## Ownership
-- Owns: <files or directories this worker may change>
-- Do NOT touch: <files owned by another worker or off limits, and who owns them>
-
+Owns: <files>. Do NOT touch: <files, and who owns them>.
 ## Constraints
-Conventions to follow, things that break if changed.
-
-## Kind
-<design | execute a plan | implement | fix | review | investigate: see kinds.md; name the skill to use if any>
-
 ## Definition of done
-A checklist the worker can verify against, with the commands to run (the project's own check / test commands).
-
+Checklist with the commands to verify.
 ## Out of scope
-Listed explicitly so the worker does not widen the work.
-
 ## Reporting
-<Copy the "Rules" and "Report back" blocks from workers.md here, filled in: tracker, issue id, orchestrator thread id.>
-
+<the Rules and Report back blocks from workers.md, filled in, with the orchestrator thread id>
 ## Suggested skills
-- `<skill>` — when to reach for it
 ```
 
-For a context summary (continuing work already started, not a fresh task) use instead: Goal, Where we are (be concrete; say if tests failed or a step was skipped), Key decisions (and what was rejected), Open questions, Next steps (first one actionable immediately), Files that matter, Suggested skills.
+For continuing work already started, use instead: Goal, Where we are (say if tests failed or a step was skipped), Key decisions (and what was rejected), Open questions, Next steps, Files that matter.
 
-## The message to the worker
-
-Sent as the `message` of `t3_thread_launch` (or `t3_thread_send` for a running thread). Short is the point:
+**Message to the worker** (`t3_thread_launch` message or `t3_thread_send`):
 
 ```
-Your task for <ISSUE-ID> is in /abs/path/to/docs/handoff/<file>.md (outside your worktree; do not commit it).
-Read it first, then carry out the task.
-The rules and the mandatory final report are in its Reporting section. Report to thread <ORCHESTRATOR_THREAD_ID>.
+Your task for <ISSUE-ID> is in /abs/path/docs/handoff/<file>.md (outside your worktree; do not commit it).
+Read it first, then carry out the task. Its Reporting section says how to report to thread <ORCHESTRATOR_THREAD_ID>.
 ```
 
-Then tell Mattia the path and which thread got it. If you have to restart or hand the task to a fresh worker, the document is what carries the context.
+Tell Mattia the path and which thread got it.

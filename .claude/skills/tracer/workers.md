@@ -1,54 +1,43 @@
-# Workers: models, tools, briefs
+# Workers: models, briefs, pitfalls
 
 ## Models
 
-Mattia picks the model. These two are only the defaults when he names none (say which you used). When he names another (another OpenCode model, Opus, ...), find its exact `instanceId` and model id with `jq` on the `orchestrator_capabilities` result (for example `jq -r '.providers[]|select(.driverKind=="claudeAgent")|.models[].id'`, and `.models[]|select(.id=="<id>")|.options` for options such as effort), and copy the `Co-Authored-By` trailer to match the model. Never choose another model yourself.
+Mattia picks. Only when he names none, default to the table and say so; for a **Design or Guide** thread always ask him, it is his thread. For any other model find the exact ids with `jq` on the file named in the `orchestrator_capabilities` result (it is huge; never read it whole): e.g. `jq -r '.providers[]|select(.driverKind=="claudeAgent")|.models[].id'`, `.models[]|select(.id=="<id>")|.options` for effort. His choice overrides the "use for" column. `t3_thread_configure` changes a running thread's model, only when he asks.
 
-| Worker | `modelSelection` for `t3_thread_launch` | Use for |
+| Worker | `modelSelection` | Default for |
 | --- | --- | --- |
-| DeepSeek 4.1 Flash (OpenCode) | `{"instanceId":"opencode","provider":"opencode","model":"opencode-go/deepseek-v4.1-flash"}` | Guide and interview threads, reliability and test work, docs. Not `deepseek-v4-pro` unless Mattia asks for it. |
-| Claude Sonnet 5.5 | `{"instanceId":"claudeAgent","provider":"claudeAgent","model":"claude-sonnet-5-5","options":[{"id":"effort","value":"medium"}]}` | Feature and fix implementation, refactors, review passes (`simplify`, `code-review`). Raise effort only if a task needs it. |
+| DeepSeek 4.1 Flash | `{"instanceId":"opencode","provider":"opencode","model":"opencode-go/deepseek-v4.1-flash"}` | Guide, tests, docs. Not `deepseek-v4-pro` unless asked. |
+| Claude Sonnet 5.5 | `{"instanceId":"claudeAgent","provider":"claudeAgent","model":"claude-sonnet-5-5","options":[{"id":"effort","value":"medium"}]}` | Implementation, execute-a-plan, fixes, refactors, review passes. |
 
-Many more models exist (`orchestrator_capabilities` output is huge: `jq '.providers[]|{providerInstanceId,driverKind,models:(.models|length)}'`). Change a running thread's model with `t3_thread_configure` (takes effect next turn), only when Mattia asks.
+Co-Authored-By trailer matches the model: `Claude Sonnet 5.5 <noreply@anthropic.com>`, `DeepSeek <noreply@opencode.ai>`; for others use the model's name.
 
-## Which tool
+## Tools
 
-- Mattia says "spawn a thread/agent" or wants to talk to it: `t3_thread_launch` (top-level thread in his sidebar). Always `runtimeMode: "full-access"`.
-- Quick in-session child work you will consume yourself: the `Agent` tool or `delegate_task`; use `task_status` / `task_cancel`. Do not use `t3_thread_launch` for it.
-- Talk to a running worker: `t3_thread_send` (steers it if mid-run), read with `t3_thread_read`, wait with `t3_thread_wait`.
-- `t3_thread_launch` has no retry key. After an error or lost response check `t3_thread_list` before retrying.
-- Workspace: the first thread of a task creates its worktree; later threads of the same task join it with `{"type":"existing_worktree","worktreePath":"...","branch":"..."}` (kinds.md section 2). A new task's first thread gets `{"type":"worktree","baseRef":"<default branch>","branch":"<issue-id>-slug","startFromOrigin":false}`. Only threads that write nothing (read-only investigation, pure Q&A) can use `{"type":"root"}`; a guide thread that commits decisions needs a worktree too.
+- A thread Mattia sees: `t3_thread_launch` (`runtimeMode: "full-access"`). Quick child work you consume yourself: `Agent` or `delegate_task`.
+- Talk: `t3_thread_send` (`queue` for a follow-up after the current turn, `auto` steers); read `t3_thread_read`; wait `t3_thread_wait`. No retry key on launch: after an error, check `t3_thread_list` before retrying.
+- Your thread id: `jq -r .parentThreadId` on the capabilities result.
 
-## Worktree seeding
+## Worktree seeding (first thread of a task)
 
-`t3_thread_launch` makes the worktree, but gitignored files do not come with it. For a project with a `.mcp.json`, copy `<repo root>/.claude/settings.local.json` into the worktree's `.claude/` (`mkdir -p` first; skip only if the source does not exist; a `cp` that fails is a stop-and-report) so the worker does not stall on "New MCP servers found". If the source is missing but `.mcp.json` exists, write `{"enableAllProjectMcpServers": true}`. Do this right after launch if the worker is not yet past startup, or tell Mattia if it already stalled. Take the repo root from `git rev-parse --show-toplevel`. A worker's first act is to confirm `git rev-parse --path-format=absolute --git-common-dir` prints `<repo root>/.git`; if not, it reports blocked "wrong repo" and stops.
+Gitignored files do not come with a worktree. If the project has a `.mcp.json`, copy `<repo root>/.claude/settings.local.json` into the worktree's `.claude/` (`mkdir -p` first; a failing `cp` is a stop-and-report), or write `{"enableAllProjectMcpServers": true}` if the source is missing; otherwise the worker stalls on "New MCP servers found". A worktree whose path casing differs from the repo's stalls on "Do you trust the files in this folder?". A stalled worker cannot report that: shortly after launch, `t3_thread_read` it and `t3_pending_request_list`; if stuck, tell Mattia (he accepts trust prompts). The worker's first act: `git rev-parse --path-format=absolute --git-common-dir` must print `<repo root>/.git`, else report blocked "wrong repo". If a worker says its tracker MCP is missing in the worktree, tell Mattia; it must not fall back to the other tracker.
 
-## Inline vs handoff
+## Brief
 
-Small, clear task: the brief template below, sent as the launch message. Big task (context, several files, many things to read first; for design and execute-a-plan threads see [kinds.md](kinds.md)): write a handoff document and send only the short pointer message (see [handoff.md](handoff.md)). The "Rules" and "Report back" blocks below go in either way: inline in the message for a small task, copied into the handoff document's Reporting section for a big one.
-
-## Brief template (copy, fill, keep the rules)
+Small, clear task: this brief as the launch message. Big task: write a handoff document (handoff.md) containing it and send only the short pointer; the Rules and Report back blocks go in either way.
 
 ```
-Do <ISSUE-ID> in the <project> repo (this worktree, branch `<issue-id>-slug`, based on the local <default branch>).
+Do <ISSUE-ID> in the <project> repo (this worktree, branch `<issue-id>-slug`, based on the local <defaultBranch>).
 
 ## The issue
-<title, the file(s), the expected result, the constraints>
+<title, expected result, constraints>
 Owns: <files you may change>. Do NOT touch: <files owned by another worker, and who>.
 
 ## Rules
-- Read AGENTS.md / CLAUDE.md and any docs they point to first. Issues live in <Linear|Traccia> via its MCP tools (Traccia: call whoami first). Do not write to the other tracker.
-- Set <ISSUE-ID> In Progress when you start, with a short comment about what you chose. The orchestrator sets every later status; do not change it after your report. If the MCP is not available in this worktree, say so in your final report.
-- Tests: add or update them; run the project's check command and any e2e the change touches; report real output, including failures.
-- Commit with a message ending `Co-Authored-By: <model name> <noreply@anthropic.com>` (DeepSeek: `Co-Authored-By: DeepSeek <noreply@opencode.ai>`), and mention `<ISSUE-ID>` in it. **Stay local: commit on your branch in this worktree, leave the worktree clean, and do not push, open a PR, merge or publish anything** (tracker MCP calls and dependency installs are fine). The orchestrator merges and pushes. Do not change repo visibility or tokens.
-- If you cannot see the running app, say what Mattia should check visually.
+- Read AGENTS.md / CLAUDE.md first. Issues live in <Linear|Traccia> (Traccia: call whoami first); do not write to the other tracker. Set <ISSUE-ID> In Progress when you start, with a short comment; the orchestrator sets every later status.
+- Add or update tests; run the project's check command and any e2e the change touches; report real output, failures included.
+- Stay local: commit on your branch (message mentions <ISSUE-ID> and ends `Co-Authored-By: <model> <email>`), leave the worktree clean, do not push, open a PR, merge or publish. When the orchestrator tells you `<defaultBranch>` moved, rebase onto it after your current step, rerun checks and report; if the rebase conflicts, abort it and report. No tracker MCP or skill available? Say so in your report.
+- Say what Mattia should check by eye if you cannot see the running app.
 
-## Report back (mandatory, every worker, every time)
-Final report to me (the orchestrator, thread <ORCHESTRATOR_THREAD_ID>): what changed, design decisions you took alone (flag so Mattia can veto), test results, what you did NOT verify, findings you did not fix (one line each: file, why, size) and anything for Mattia to decide. If t3_thread_send is available, also send a 5-line summary with the branch name and last commit SHA to that thread id. Say the worktree is clean and everything is committed.
+## Report back (mandatory)
+To the orchestrator, thread <ORCHESTRATOR_THREAD_ID>: what changed, branch and last commit SHA, that the worktree is clean, decisions you took alone (so he can veto), test results, what you did NOT verify, findings you did not fix (file, why, size), anything for Mattia to decide. Also send a 5-line summary with `t3_thread_send`.
 ```
-
-Your thread id is `parentThreadId` in the `orchestrator_capabilities` result (query it with `jq -r .parentThreadId`).
-
-## Guide threads (interview or walkthrough)
-
-One question at a time, short, 2 or 3 options with a recommendation, Mattia answers in a word. Decisions get written to a local branch (committed, not pushed), plus a comment on the relevant issues. They file no new issues unless asked, and list implied work for the orchestrator instead.

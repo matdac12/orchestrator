@@ -19,7 +19,7 @@ Tools: the `traccia` MCP. Run `whoami` first (expect actor `agent`). Default pro
 Tools: the `linear` MCP (`mcp__linear__*`; load schemas with ToolSearch first).
 
 - Find the team with `list_teams`; search `list_issues` before creating with `save_issue`.
-- Statuses come from `list_issue_statuses` for the team; use existing names only (In Progress, In Review, Done).
+- Statuses come from `list_issue_statuses` for the team; use only names that exist (map In Progress / In Review / Done / blocked onto them; no "blocked" status means comment plus an existing label).
 - Labels via `list_issue_labels`; do not create one without Mattia's say-so.
 - Comments with `save_comment` (short decision notes, branch and commit). Put the issue id in the branch name.
 - Branch naming: the issue's `gitBranchName` from `get_issue`. Commit messages mention `<ID>`.
