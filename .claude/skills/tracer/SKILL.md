@@ -15,7 +15,7 @@ Each piece of work goes round the same loop; keep it in your head and keep sever
 
 1. **Plan** with Mattia: what is next, what can run in parallel without touching the same files.
 2. **File** the issue in the tracker.
-3. **Spawn** a worker (inline brief, or a handoff document for big tasks) on the model Mattia picked.
+3. **Judge readiness, classify, spawn.** First decide whether the task is ready, needs discussion, or needs triage (kinds.md section 1), then its kind (design, execute a plan, implement, fix, review, investigate, guide: see [kinds.md](kinds.md)), then spawn a worker (inline brief, or a handoff document for big tasks) on the model Mattia picked. Big work goes design thread first, execution thread second.
 4. **Wait.** The worker commits locally on its worktree branch and reports back to you.
 5. **Record** the report in the tracker.
 6. **Review** the real diff, tell Mattia what changed, and recommend.
@@ -36,7 +36,7 @@ After preflight, do not wait silently and do not invent work. Read the tracker's
 3. **Check this session can spawn.** `t3_thread_launch` and project changes are refused (`capability_denied`: "Project launches require a full-access/default calling thread") unless the orchestrator thread itself runs in full-access mode. Read `runtimeMode` from `orchestrator_capabilities` (`jq -r .runtimeMode`); if it is not `full-access`, tell Mattia to switch this thread's mode before you plan any spawn. Do not try workarounds.
 4. **Pick the tracker.** `/tracer linear` or `/tracer traccia` decides. With no argument, use the project's own docs (`AGENTS.md`, `docs/agents/issue-tracker.md`) if they name one; else, if exactly one of the `linear` / `traccia` MCPs is available, use it; else ask in one line. Say which you chose. Read [trackers.md](trackers.md). If its MCP tools are missing, tell Mattia to restart the session; never fall back to the other tracker.
 5. Read the project's `AGENTS.md` / `CLAUDE.md` for its commands (check, test, deploy), conventions and pitfalls. They override anything generic here.
-6. Read [workers.md](workers.md) before the first spawn.
+6. Read [workers.md](workers.md) and [kinds.md](kinds.md) before the first spawn.
 
 ## Roll call
 
@@ -58,15 +58,15 @@ Planning is collaborative: reconcile the tracker with reality, propose the next 
 - **Check what already shipped before designing.** Issues drift: part of one may be done by the time it is picked up. For anything not obviously fresh, have the worker (or yourself, read-only) compare the code against the issue first and report done / partial / missing. If nothing needs building, propose closing the issue.
 - **Kickoff convention (keeps parallel workers from colliding).** Every kickoff pre-assigns the branch and states file boundaries: the files this worker owns AND the files it must not touch because another worker owns them ("do NOT touch X, worker Y owns it"). Include a timestamped migration name if the task adds one.
 - **Dependencies.** If task B needs A's result, do not run them in parallel: spawn B only after A is merged and verified (so B branches from a default branch that contains A), and say so in B's issue. Merge independent branches in any order, dependent ones in dependency order.
-- **Plan gate for big or ambiguous work.** The brief says: investigate, write the plan, report to me and stop until told "go". You relay the plan to Mattia and send the go. Small, clear tasks skip the gate.
+- **Big or ambiguous work gets a design thread, not a gate.** Spawn a Design thread (kinds.md: brainstorm, spec, plan, with the skill family Mattia picks), where he makes the decisions with the agent himself. When it reports the approved plan, spawn a separate execution thread running `superpowers:executing-plans` on it. Small, clear tasks skip design.
 - **Big task → handoff document.** Do not paste a wall of text as the worker's first message. Write a task brief to `docs/handoff/` and send a two-line message pointing at it. See [handoff.md](handoff.md).
 
 ## Spawning workers
 
 - **Every worker, whatever its model or kind (implementation, guide, review), always reports back to this orchestrator session.** The brief carries your thread id so the worker can `t3_thread_send` a short report, and ends with a mandatory final report. A worker is not finished until its report has arrived: if a thread goes idle without one, read it (`t3_thread_read`) and ask with `t3_thread_send`.
-- Spawn with `t3_thread_launch` (top-level threads Mattia sees in the sidebar), `runtimeMode: "full-access"` always, one thread per issue, own worktree for code. Thread title: `<ISSUE-ID> · <2-3 words>` (distilled from the issue, under ~26 characters or the sidebar clips it). Branch naming per the tracker (trackers.md). **Workers are local-only:** they commit on their worktree branch, based on the local `<defaultBranch>`, and never push, open PRs or publish anything (tracker MCP calls and dependency installs are fine). You are the only thing that pushes to GitHub. Any thread that writes files, guide threads included, gets its own worktree; `{"type":"root"}` is for threads that only read and answer.
+- Spawn with `t3_thread_launch` (top-level threads Mattia sees in the sidebar), `runtimeMode: "full-access"` always, one worktree per issue (a task = issue = branch = worktree; its threads, e.g. design then execution then a review fix, run in it one after another via `existing_worktree`, see kinds.md). Thread title: `<ISSUE-ID> · <2-3 words>` (distilled from the issue, under ~26 characters or the sidebar clips it). Branch naming per the tracker (trackers.md). **Workers are local-only:** they commit on their worktree branch, based on the local `<defaultBranch>`, and never push, open PRs or publish anything (tracker MCP calls and dependency installs are fine). You are the only thing that pushes to GitHub. Any thread that writes files, guide threads included, gets its own worktree; `{"type":"root"}` is for threads that only read and answer.
 - **Model: Mattia chooses.** Use exactly what he names, looking up ids with `orchestrator_capabilities` and `jq`. If he names none, use the defaults in workers.md and say which. Never switch a worker's model on your own initiative.
-- One worker per issue. Before spawning more, check file overlap between unmerged worker branches and the boundaries you just wrote.
+- One active worker per worktree. Before spawning more, check file overlap between unmerged worker branches and the boundaries you just wrote.
 - Spawn only when Mattia wants it, or when he has approved the plan that implies it. He may be driving threads himself.
 
 ## Talking to workers
@@ -91,7 +91,7 @@ You are the only one that pushes. Merge everything locally first, verified green
 
 ## Cleanup
 
-Worktree of a merged task: `git worktree remove <path>` (no `--force`), then `git branch -d <branch>` (merged locally, so `-d` works). If it fails for uncommitted changes, leave it and tell Mattia; if the directory is in use (a live worker thread parked there, normal on Windows), defer and say so. Worker branches are never pushed, so there are no remote branches to delete.
+Worktree of a merged task (all its threads finished; one worktree serves the whole task): `git worktree remove <path>` (no `--force`), then `git branch -d <branch>` (merged locally, so `-d` works). If it fails for uncommitted changes, leave it and tell Mattia; if the directory is in use (a live worker thread parked there, normal on Windows), defer and say so. Worker branches are never pushed, so there are no remote branches to delete.
 
 ## Deploy
 

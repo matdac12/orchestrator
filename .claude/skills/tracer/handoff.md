@@ -1,6 +1,6 @@
 # Handoff document for big kickoffs
 
-Use it when the brief is more than a screenful: a feature with context, several files, a plan gate, or a lot of "read first". Small, clear tasks keep the inline brief from workers.md.
+Use it when the brief is more than a screenful: a feature with context, several files, or a lot of "read first". Small, clear tasks keep the inline brief from workers.md.
 
 The substance lives in a file; the worker's first message is two or three lines pointing at it. Never send the document's contents as the first message.
 
@@ -41,8 +41,8 @@ Why this is being asked, and background that is not obvious from the code.
 ## Constraints
 Conventions to follow, things that break if changed.
 
-## Gate
-<"Investigate and write the plan, report to the orchestrator and wait for 'go'"  OR  "No gate, execute directly">
+## Kind
+<design | execute a plan | implement | fix | review | investigate: see kinds.md; name the skill to use if any>
 
 ## Definition of done
 A checklist the worker can verify against, with the commands to run (the project's own check / test commands).

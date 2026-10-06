@@ -17,7 +17,7 @@ Many more models exist (`orchestrator_capabilities` output is huge: `jq '.provid
 - Quick in-session child work you will consume yourself: the `Agent` tool or `delegate_task`; use `task_status` / `task_cancel`. Do not use `t3_thread_launch` for it.
 - Talk to a running worker: `t3_thread_send` (steers it if mid-run), read with `t3_thread_read`, wait with `t3_thread_wait`.
 - `t3_thread_launch` has no retry key. After an error or lost response check `t3_thread_list` before retrying.
-- Workspace: code work gets `{"type":"worktree","baseRef":"<default branch>","branch":"<issue-id>-slug","startFromOrigin":false}`. Only threads that write nothing (read-only investigation, pure Q&A) can use `{"type":"root"}`; a guide thread that commits decisions needs a worktree too.
+- Workspace: the first thread of a task creates its worktree; later threads of the same task join it with `{"type":"existing_worktree","worktreePath":"...","branch":"..."}` (kinds.md section 2). A new task's first thread gets `{"type":"worktree","baseRef":"<default branch>","branch":"<issue-id>-slug","startFromOrigin":false}`. Only threads that write nothing (read-only investigation, pure Q&A) can use `{"type":"root"}`; a guide thread that commits decisions needs a worktree too.
 
 ## Worktree seeding
 
@@ -25,7 +25,7 @@ Many more models exist (`orchestrator_capabilities` output is huge: `jq '.provid
 
 ## Inline vs handoff
 
-Small, clear task: the brief template below, sent as the launch message. Big task (context, several files, plan gate): write a handoff document and send only the short pointer message (see [handoff.md](handoff.md)). The "Rules" and "Report back" blocks below go in either way: inline in the message for a small task, copied into the handoff document's Reporting section for a big one.
+Small, clear task: the brief template below, sent as the launch message. Big task (context, several files, many things to read first; for design and execute-a-plan threads see [kinds.md](kinds.md)): write a handoff document and send only the short pointer message (see [handoff.md](handoff.md)). The "Rules" and "Report back" blocks below go in either way: inline in the message for a small task, copied into the handoff document's Reporting section for a big one.
 
 ## Brief template (copy, fill, keep the rules)
 
@@ -35,7 +35,6 @@ Do <ISSUE-ID> in the <project> repo (this worktree, branch `<issue-id>-slug`, ba
 ## The issue
 <title, the file(s), the expected result, the constraints>
 Owns: <files you may change>. Do NOT touch: <files owned by another worker, and who>.
-<Gate: "investigate what already exists, write the plan, report to me and wait for 'go'" OR none>
 
 ## Rules
 - Read AGENTS.md / CLAUDE.md and any docs they point to first. Issues live in <Linear|Traccia> via its MCP tools (Traccia: call whoami first). Do not write to the other tracker.
