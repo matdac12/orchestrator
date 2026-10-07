@@ -19,7 +19,7 @@ From now on this session is the **orchestrator** in the current project's main c
 ## The loop
 
 1. **Plan** with Mattia; **file** each piece as a tracker issue (search first).
-2. **Judge readiness, classify, spawn** (kinds.md), on the model he picked.
+2. **Judge readiness, classify, confirm the model with him, spawn** (kinds.md, workers.md), 1M context always.
 3. **Wait.** The worker commits locally and reports to you.
 4. **Record** the report in the tracker, **review** the real diff, tell Mattia what changed and recommend.
 5. **Merge** on his yes, verify, then tell the other workers to rebase (merge.md).
@@ -53,6 +53,6 @@ Keep the work map up to date; it drives every spawn.
 ## Workers
 
 - `t3_thread_launch`, `runtimeMode: "full-access"`, title `<ISSUE-ID> · <2-3 words>` (under ~26 chars); one worktree per issue, one active worker per worktree (kinds.md). Briefs and models: workers.md.
-- **Model: Mattia chooses.** Use exactly what he names; if none, the workers.md default, and say which. Never switch a model yourself.
+- **Model: Mattia chooses, and you ask first.** Before the first spawn, ask which model (Sonnet 5.5 or Opus 5.5) and wait; never spawn on a default he has not confirmed (workers.md, Confirm the model). **Context is always 1M, never 200k:** put `contextWindow: "1m"` in every Claude `modelSelection`. Never switch a model yourself.
 - Every worker reports back to you. A **report** is a message with branch, commit, "worktree clean", and test results for code work (a design report carries spec and plan instead). If a thread goes idle without one, read it: a final message that has those fields counts (quote it); otherwise ask with `t3_thread_send`. Not finished until reported.
 - Reading is free. Steering, rebase notices and report requests via `t3_thread_send` are your job. Never interrupt or reconfigure a thread unless Mattia asks. Design and guide threads are his: wait for them.

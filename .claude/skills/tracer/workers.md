@@ -2,12 +2,17 @@
 
 ## Models
 
-Mattia picks. Only when he names none, default to the table and say so; for a **Design or Guide** thread always ask him, it is his thread. For any other model find the exact ids with `jq` on the file named in the `orchestrator_capabilities` result (it is huge; never read it whole): e.g. `jq -r '.providers[]|select(.driverKind=="claudeAgent")|.models[].id'`, `.models[]|select(.id=="<id>")|.options` for effort. His choice overrides the "use for" column. `t3_thread_configure` changes a running thread's model, only when he asks.
+Mattia picks, **and you always ask before the first spawn** (see Confirm the model). Never launch on a default he has not confirmed. **Context window is always 1M**: every Claude `modelSelection` carries `{"id":"contextWindow","value":"1m"}`, never `200k`, and never rely on the default (Sonnet defaults to 200k). Verify the option exists for the model with the `jq` below; if a model has no 1M option, tell him instead of launching. For a **Design or Guide** thread always ask him, it is his thread. For any other model find the exact ids with `jq` on the file named in the `orchestrator_capabilities` result (it is huge; never read it whole): e.g. `jq -r '.providers[]|select(.driverKind=="claudeAgent")|.models[].id'`, `.models[]|select(.id=="<id>")|.options` for effort. His choice overrides the "use for" column. `t3_thread_configure` changes a running thread's model, only when he asks.
 
 | Worker | `modelSelection` | Default for |
 | --- | --- | --- |
 | DeepSeek 4.1 Flash | `{"instanceId":"opencode","provider":"opencode","model":"opencode-go/deepseek-v4.1-flash"}` | Guide, tests, docs. Not `deepseek-v4-pro` unless asked. |
-| Claude Sonnet 5.5 | `{"instanceId":"claudeAgent","provider":"claudeAgent","model":"claude-sonnet-5-5","options":[{"id":"effort","value":"medium"}]}` | Implementation, execute-a-plan, fixes, refactors, review passes. |
+| Claude Sonnet 5.5 | `{"instanceId":"claudeAgent","provider":"claudeAgent","model":"claude-sonnet-5-5","options":[{"id":"effort","value":"medium"},{"id":"contextWindow","value":"1m"}]}` | Implementation, execute-a-plan, fixes, refactors, review passes. |
+| Claude Opus 5.5 | `{"instanceId":"claudeAgent","provider":"claudeAgent","model":"claude-opus-5-5","options":[{"id":"effort","value":"high"},{"id":"contextWindow","value":"1m"}]}` | Hard design, tricky refactors, anything Sonnet struggled with. |
+
+## Confirm the model (before the first spawn, and whenever the next worker could differ)
+
+Ask Mattia in one short question which model runs the worker(s): **Sonnet 5.5** or **Opus 5.5** (or another he names), with your recommendation for the kind of task. State that context is fixed at 1M. Wait for the answer; do not spawn first. His answer covers the workers of that batch; ask again if he changes the plan or a different kind of task comes up. Before every `t3_thread_launch` / `delegate_task`, check the `modelSelection` you are about to send contains `contextWindow: "1m"`.
 
 Co-Authored-By trailer matches the model: `Claude Sonnet 5.5 <noreply@anthropic.com>`, `DeepSeek <noreply@opencode.ai>`; for others use the model's name.
 
