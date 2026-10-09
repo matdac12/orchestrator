@@ -100,7 +100,7 @@ seed_db() {
   echo ">> Seeding DB in-container ($SEED_STRATEGY) via '$svc': $script"
   # --build so the seed image exists before the app's own build; --no-deps so we
   # don't restart the already-healthy data services (which would reassign ports).
-  docker compose -p "$proj" "${cf[@]}" run --rm --build --no-deps "$svc" sh -lc "$script"
+  docker compose -p "$proj" "${cf[@]}" run --rm --build --no-deps "$svc" sh -c "$script"
 }
 
 # DATA_SERVICES default: if the recipe left it unset, use `postgres` when the
@@ -544,6 +544,14 @@ cmd_nuke() {
   rm -f "$STAMP"
   echo ">> Removed base image + stamp. Next run needs a fresh 'onboard'."
 }
+
+# Remote mode (opt-in per repo via a user-level file, never versioned): run this same
+# script on a Docker host over SSH and tunnel the port back. See remote.sh.
+REMOTE_CONF="${ESEGUI_REMOTE_CONF:-$HOME/.config/esegui-test/remote.env}"
+if [ -z "${ESEGUI_ON_REMOTE:-}" ] && [ -f "$REMOTE_CONF" ] && have git    && git rev-parse --show-toplevel >/dev/null 2>&1    && ( # shellcheck disable=SC1090
+        source "$REMOTE_CONF"; case " ${REMOTE_REPOS:-} " in *" $(repo_slug) "*) exit 0;; esac; exit 1 ); then
+  exec bash "$SELF_DIR/remote.sh" "${1:-}"
+fi
 
 have docker || die "docker not found on PATH"
 have git || die "git not found on PATH"

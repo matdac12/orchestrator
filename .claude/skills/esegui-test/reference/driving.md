@@ -22,6 +22,7 @@ Playbook: <path to this file>. Return the finding YAML from reviewing.md (verdic
 - **Act:** `preview_click` / `preview_type` with `locator='aria-ref=<ref>'` or a role/text selector (`role=textbox[name='Email']`, `role=button[name='Log in']`). Refs expire after navigation or a new snapshot. `preview_wait_for` (text, selector or `urlIncludes`) instead of sleeping; if it times out, take a snapshot before concluding failure (the page may be fine).
 - **Evidence screenshot:** `preview_snapshot(save=true)` returns **only** `url` + `screenshotPath` (no tree), so it is a separate call. Copy the file into `EVIDENCE_DIR` as `<mission>-NN-<what>.png` with `cp`. Shoot every meaningful step and every failure (`ERROR-<step>.png`).
 - **Console/network evidence:** take the plain snapshot after the action; write failing entries (status >= 400, `failed: true`, console errors) to `network.json` / `console.log` in `EVIDENCE_DIR`. For request/response bodies, wrap `fetch` via `preview_evaluate` before acting.
+- **Entries accumulate** across navigations in a tab (and carry earlier origins), so judge only entries newer than your action (compare `timestamp`).
 - **Finish:** close your tab when done (`t3_preview_close` if available).
 
 ## Logging in
@@ -34,5 +35,7 @@ If creds were given: open `SANDBOX_URL + LOGIN_PATH`, fill `TEST_USER`/`TEST_PAS
 ## Per step
 
 Act → wait for the expected state → snapshot → judge ✓/⚠ against `expected` with a one-line reason. Prefer role/text locators so flows survive small UI churn.
+
+If a browser call fails (tab can't open, host unavailable), report the exact error as a blocker, not a product verdict, and do not guess. Do not cite commit hashes in `fix` unless you ran `git log` yourself.
 
 Return one finding and stop. The planner aggregates.

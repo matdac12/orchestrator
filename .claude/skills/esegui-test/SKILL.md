@@ -32,8 +32,8 @@ All commands from the repo root; `SANDBOX="$SKILL_DIR/scripts/sandbox.sh"`.
    - *STALE* (lockfiles changed) → `$SANDBOX onboard`, then continue.
    - *current* → continue. Never re-onboard when current.
 2. **Up:** `$SANDBOX up`. Read `SANDBOX_URL` and `EVIDENCE_DIR` from its output (the port is ephemeral). If the recipe has auth it also prints `TEST_USER`/`TEST_PASSWORD`/`LOGIN_PATH`/`POST_LOGIN_PATH`.
-3. **Plan + gate:** read `git diff <base>...HEAD`, the commit message and any brief; write 2–5 diff-scoped adversarial missions (schema in `reference/reviewing.md`). Show them for approve/edit/drop unless `--auto`.
-4. **Execute:** `$SANDBOX reset`, then spawn delegates (`reference/driving.md` has the prompt and browser rules). Model = `DELEGATE_MODEL` from `recipe.env` (default Haiku 5.5). Read-only missions (`mutates: false`) may run in parallel after one reset; each mutating mission gets its own `reset` and runs alone.
+3. **Plan + gate:** read `git diff <base>...HEAD`, the commit message and any brief; derive `expected` from the **final code at HEAD**, not from commit titles (a later commit may have removed what an earlier title promises); write 2–5 diff-scoped adversarial missions (schema in `reference/reviewing.md`). Show them for approve/edit/drop unless `--auto`.
+4. **Execute:** `$SANDBOX reset`, then spawn delegates (`reference/driving.md` has the prompt and browser rules). Model = `DELEGATE_MODEL` from `recipe.env` (default Haiku 5.5). Read-only missions (`mutates: false`) may run in parallel after one reset; each mutating mission gets its own `reset` and runs alone. **Run delegates in the foreground** (`run_in_background: false`) and keep your turn open until they return: the native browser tools only work while the launching thread run is active, so a background delegate fails with "calling provider no longer owns an active thread run".
 5. **Report:** write `REVIEW.md` to `EVIDENCE_DIR`; give findings inline, most severe first, with key screenshots, repro path and fix hint. Then `$SANDBOX down`.
 
 The planner runs at the session model; launch under Opus 5.5 or Sonnet 5.5 for good missions.
