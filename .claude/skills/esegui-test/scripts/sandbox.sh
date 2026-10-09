@@ -10,7 +10,7 @@
 #   down     tear down the last run's sandbox
 #   nuke     also drop the base image / stamp (force a re-onboard)
 #
-# The recipe lives in the target repo under .bedigital-visual-tests/:
+# The recipe lives in the target repo under .esegui-test/:
 #   recipe.env            (sourced below — schema: prepara-test/templates/recipe.env.example)
 #   sandbox.compose.yml   (the sandbox definition / sanitizing override)
 #   Dockerfile.base       (self-contained path only)
@@ -18,11 +18,11 @@
 set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # this skill's scripts/ dir
-BVT_DIR=".bedigital-visual-tests"
+BVT_DIR=".esegui-test"
+[ -d "$BVT_DIR" ] || { [ -d ".bedigital-visual-tests" ] && BVT_DIR=".bedigital-visual-tests"; }  # legacy name
 RECIPE="$BVT_DIR/recipe.env"
 STAMP="$BVT_DIR/.base.hash"       # gitignored; lockfile hash at last onboard
 RUNS_DIR="$BVT_DIR/.runs"         # gitignored; one <run>.env per concurrent `up`
-LAST_RUN="$BVT_DIR/.last-run"     # gitignored; back-compat pointer to newest run
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -39,7 +39,7 @@ load_recipe() {
   #   HEALTH_PATH   path polled on the published port for 200   (default /)
   #   LOCKFILES     space-separated lockfile globs for the hash (required)
   #   BASE_COMPOSE  repo compose to layer the override under    (optional)
-  #   DATA_SERVICES stateful services `reset` recreates          (default postgres)
+  #   DATA_SERVICES stateful services `reset` recreates          (default: none; a `postgres` service is auto-detected)
   #   RESET_CMD     full reseed OVERRIDE for `reset`             (optional escape hatch)
   #   -- DB seeding (optional; unset ⇒ image initdb only, unchanged) --
   #   SEED_STRATEGY initdb | migrations | synthetic | snapshot   (default initdb)
@@ -62,7 +62,7 @@ load_recipe() {
   : "${LOCKFILES:?recipe missing LOCKFILES}"
   HEALTH_PATH="${HEALTH_PATH:-/}"
   BASE_COMPOSE="${BASE_COMPOSE:-}"
-  DATA_SERVICES="${DATA_SERVICES:-postgres}"
+  DATA_SERVICES="${DATA_SERVICES:-}"
   RESET_CMD="${RESET_CMD:-}"
   SEED_STRATEGY="${SEED_STRATEGY:-initdb}"
   SEED_SERVICE="${SEED_SERVICE:-}"
@@ -103,6 +103,15 @@ seed_db() {
   docker compose -p "$proj" "${cf[@]}" run --rm --build --no-deps "$svc" sh -lc "$script"
 }
 
+# DATA_SERVICES default: if the recipe left it unset, use `postgres` when the
+# compose defines one, else none (no-DB apps: up is one-shot, reset only reseeds
+# via RESET_CMD/restart). Call with BASE_IMAGE/BDVT_RUN exported, in the worktree.
+resolve_data_services() {
+  [ -z "$DATA_SERVICES" ] || return 0
+  local cf; mapfile -t cf < <(compose_files)
+  docker compose "${cf[@]}" config --services 2>/dev/null | grep -qx postgres && DATA_SERVICES=postgres || true
+}
+
 repo_slug() { basename "$(git rev-parse --show-toplevel)" | tr '[:upper:] ' '[:lower:]-'; }
 
 lockfile_hash() {
@@ -128,13 +137,8 @@ lockfile_hash() {
 
 base_image() { echo "bdvt-$(repo_slug)-base:$(lockfile_hash)"; }
 
-# Newest run-state file (per-run isolation for concurrent `up`s); falls back to
-# the legacy single-file .last-run so pre-existing runs still tear down.
-latest_run_file() {
-  local f
-  f=$(ls -1t "$RUNS_DIR"/*.env 2>/dev/null | head -n1 || true)
-  if [ -n "$f" ]; then echo "$f"; elif [ -f "$LAST_RUN" ]; then echo "$LAST_RUN"; fi
-}
+# Newest run-state file (per-run isolation for concurrent `up`s).
+latest_run_file() { ls -1t "$RUNS_DIR"/*.env 2>/dev/null | head -n1 || true; }
 
 # Check out committed HEAD into a detached worktree at $1 and overlay the
 # (possibly uncommitted) recipe files. App code stays as-committed; only the
@@ -155,7 +159,7 @@ prepare_head_worktree() {
 
 # Assemble compose args. --project-directory pins the repo root as the project
 # dir so relative build contexts/dockerfiles resolve against it — NOT against
-# the .bedigital-visual-tests/ folder the override lives in (which would double
+# the .esegui-test/ folder the override lives in (which would double
 # the path). Callers cd to the repo root (or its HEAD worktree) first.
 compose_files() {
   local args=(--project-directory .)
@@ -354,7 +358,9 @@ cmd_up() {
   [ -f "$STAMP" ] || die "not onboarded — run 'onboard' first"
   [ "$(cat "$STAMP")" = "$cur" ] || die "base is stale (deps changed) — run 'onboard' to rebuild"
 
-  local slug run proj wt evid baseimg runfile up_ok=""
+  # Globals on purpose: the EXIT trap below fires after this frame unwinds.
+  slug="" run="" proj="" wt="" evid="" baseimg="" runfile="" up_ok=""
+  cf=()
   slug=$(repo_slug)
   # Resolve the base image name+hash NOW, from the real repo — inside the HEAD
   # worktree the slug and lockfile hash would both differ (different toplevel,
@@ -376,9 +382,8 @@ cmd_up() {
   # plane. line1 project, line2 worktree, line3 run id (reset needs the run id to
   # re-interpolate ${BDVT_RUN} container names when recreating services).
   printf '%s\n%s\n%s\n' "$proj" "$wt" "$run" > "$runfile"
-  printf '%s\n%s\n%s\n' "$proj" "$wt" "$run" > "$LAST_RUN"   # back-compat pointer
 
-  local cf; mapfile -t cf < <(compose_files)
+  mapfile -t cf < <(compose_files)
 
   # From here on, any failure before we print SANDBOX_URL leaves a half-built
   # sandbox + worktree + run-state; tear it all down. Cleared on success.
@@ -390,16 +395,16 @@ cmd_up() {
           ( cd "$wt" 2>/dev/null && docker compose -p "$proj" "${cf[@]}" down -v --remove-orphans ) >/dev/null 2>&1 || true
           git worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
           rm -f "$runfile"
-          [ -f "$LAST_RUN" ] && [ "$(sed -n 1p "$LAST_RUN" 2>/dev/null)" = "$proj" ] && rm -f "$LAST_RUN"
         fi' EXIT
 
   echo ">> Spinning sandbox (project $proj, ephemeral port)..."
   (
     cd "$wt"
     # BDVT_RUN lets the override interpolate per-run-unique container names
-    # (fixed container_name is global and breaks isolation — see gotchas.md).
+    # (fixed container_name is global and breaks isolation — see prepara-test onboarding.md §3).
     export BASE_IMAGE="$baseimg" BDVT_RUN="$run" DOCKER_BUILDKIT=1
-    if [ "$SEED_STRATEGY" != initdb ]; then
+    resolve_data_services
+    if [ "$SEED_STRATEGY" != initdb ] && [ -n "$DATA_SERVICES" ]; then
       # Strategy needs the schema to exist BEFORE the app boots: bring up just the
       # data services (health-gated), seed them in-container, then start the app.
       # set -f so a multi-service DATA_SERVICES isn't pathname-expanded.
@@ -410,8 +415,9 @@ cmd_up() {
       seed_db "$proj"
       docker compose -p "$proj" "${cf[@]}" up -d --build
     else
-      # Default (initdb / no strategy): one-shot bring-up, image initdb seeds.
+      # No seed strategy, or no data service (no-DB app): one-shot bring-up.
       docker compose -p "$proj" "${cf[@]}" up -d --build
+      seed_db "$proj"
     fi
   )
 
@@ -425,7 +431,7 @@ cmd_up() {
   if ! wait_for_health "$url"; then
     echo "!! App never became healthy. Recent logs:" >&2
     (cd "$wt" && docker compose -p "$proj" "${cf[@]}" logs --tail 40 "$APP_SERVICE") >&2 || true
-    echo "   (Most common cause: missing secrets/env — see reference/gotchas.md)" >&2
+    echo "   (Most common cause: missing secrets/env — see prepara-test onboarding.md §4)" >&2
     die "sandbox unhealthy"
   fi
 
@@ -440,7 +446,7 @@ cmd_up() {
   [ -n "$TEST_PASSWORD" ]   && echo "TEST_PASSWORD=$TEST_PASSWORD"
   [ -n "$LOGIN_PATH" ]      && echo "LOGIN_PATH=$LOGIN_PATH"
   [ -n "$POST_LOGIN_PATH" ] && echo "POST_LOGIN_PATH=$POST_LOGIN_PATH"
-  echo ">> Ready. Drive it with agent-browser (reference/driving-the-app.md); 'down' when done."
+  echo ">> Ready. Drive it with the browser (esegui-test/reference/driving.md); 'down' when done."
 }
 
 cmd_down() {
@@ -456,8 +462,6 @@ cmd_down() {
     docker compose -p "$proj" down -v --remove-orphans 2>/dev/null || true
   fi
   rm -f "$runfile"
-  # Clear the back-compat pointer if it named this same run.
-  [ -f "$LAST_RUN" ] && [ "$(sed -n 1p "$LAST_RUN" 2>/dev/null)" = "$proj" ] && rm -f "$LAST_RUN"
   echo ">> Torn down $proj (base image kept)."
 }
 
@@ -478,6 +482,7 @@ cmd_reset() {
   (
     cd "$wt"
     export BDVT_RUN="$run" BASE_IMAGE="$baseimg"
+    resolve_data_services
     if [ -n "$RESET_CMD" ]; then
       # ESCAPE HATCH: the recipe author owns the entire reseed lifecycle.
       # $COMPOSE and $PROJ are provided; e.g. RESET_CMD='$COMPOSE --profile seed run --rm seed'
@@ -493,12 +498,14 @@ cmd_reset() {
       # already handed to the driver. --wait so the DB is healthy (initdb finished)
       # before we (re)seed on top. DATA_SERVICES is intentionally word-split
       # (multiple services); `set -f` keeps a name from being pathname-expanded.
-      set -f
-      # shellcheck disable=SC2086
-      docker compose -p "$proj" "${cf[@]}" rm -v -sf $DATA_SERVICES
-      # shellcheck disable=SC2086
-      docker compose -p "$proj" "${cf[@]}" up -d --no-deps --wait $DATA_SERVICES
-      set +f
+      if [ -n "$DATA_SERVICES" ]; then
+        set -f
+        # shellcheck disable=SC2086
+        docker compose -p "$proj" "${cf[@]}" rm -v -sf $DATA_SERVICES
+        # shellcheck disable=SC2086
+        docker compose -p "$proj" "${cf[@]}" up -d --no-deps --wait $DATA_SERVICES
+        set +f
+      fi
       seed_db "$proj"
     fi
   )

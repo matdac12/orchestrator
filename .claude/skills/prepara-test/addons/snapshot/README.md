@@ -39,7 +39,7 @@ SEED_STRATEGY=snapshot
 SEED_SERVICE=frontend               # app image (has `pg`)
 MIGRATE_CMD="npx prisma migrate deploy"          # build the schema first
 SEED_CMD="node scripts/snapshot-and-mask.mjs"    # then pull+mask+load
-SNAPSHOT_CONFIG=.bedigital-visual-tests/snapshot.config.json
+SNAPSHOT_CONFIG=.esegui-test/snapshot.config.json
 ```
 
 In `sandbox.compose.yml`, the seed service reads the runtime-injected source URL and
@@ -49,12 +49,12 @@ the committed config path — the URL value is never stored:
   frontend:
     environment:
       SOURCE_DB_URL: ${SOURCE_DB_URL:-}     # injected at `up`; empty ⇒ tool refuses
-      SNAPSHOT_CONFIG: /app/.bedigital-visual-tests/snapshot.config.json
-      # SNAPSHOT_DUMP: /app/.bedigital-visual-tests/evidence/snapshot.json  # optional; gitignored
+      SNAPSHOT_CONFIG: /app/.esegui-test/snapshot.config.json
+      # SNAPSHOT_DUMP: /app/.esegui-test/evidence/snapshot.json  # optional; gitignored
 ```
 
-Copy `templates/snapshot-and-mask.mjs` → the app's `scripts/`, and
-`templates/snapshot.config.example.json` → `.bedigital-visual-tests/snapshot.config.json`;
+Copy `addons/snapshot/snapshot-and-mask.mjs` → the app's `scripts/`, and
+`addons/snapshot/snapshot.config.example.json` → `.esegui-test/snapshot.config.json`;
 fill in the real tables/columns. Add to `.gitignore` any `SNAPSHOT_DUMP` path.
 
 Run: `SOURCE_DB_URL='postgresql://readonly_user:pw@real-host/db' bash "$ESEGUI_DIR/scripts/sandbox.sh" up` (`ESEGUI_DIR` = the esegui-test sibling skill dir, which owns the scripts).

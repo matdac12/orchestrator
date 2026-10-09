@@ -1,4 +1,4 @@
-# .bedigital-visual-tests/sandbox.compose.yml — the sandbox definition.
+# .esegui-test/sandbox.compose.yml — the sandbox definition.
 # Two shapes; pick ONE based on whether the repo already has a compose file.
 # The scripts always run: docker compose -p <unique> [-f BASE_COMPOSE] -f THIS up
 #
@@ -30,7 +30,7 @@
 #     ports: !override ["0:8000"]
 #     container_name: bdvt-${BDVT_RUN}-backend
 #     environment:
-#       JWT_PRIVATE_KEY: "dev-only-throwaway"   # see reference/gotchas.md on secrets
+#       JWT_PRIVATE_KEY: "dev-only-throwaway"   # see onboarding.md §4 on secrets
 #   postgres:
 #     ports: !reset []              # DROP any published DB port — reach it over the
 #                                   # compose network only (a bare `[]` would NOT drop it)
@@ -67,7 +67,7 @@ services:
   frontend:                          # == APP_SERVICE
     build:
       context: .
-      dockerfile: .bedigital-visual-tests/Dockerfile.sandbox
+      dockerfile: .esegui-test/Dockerfile.sandbox
       args:
         # sandbox.sh passes the lockfile-hash-tagged base image here.
         BASE_IMAGE: ${BASE_IMAGE:-bdvt-base:latest}

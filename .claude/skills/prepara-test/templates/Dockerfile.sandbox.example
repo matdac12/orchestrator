@@ -1,4 +1,4 @@
-# .bedigital-visual-tests/Dockerfile.sandbox — the disposable per-run image (self-contained path).
+# .esegui-test/Dockerfile.sandbox — the disposable per-run image (self-contained path).
 # FROM the golden base (deps already present), so this only adds source + builds.
 ARG BASE_IMAGE=bdvt-base:latest
 FROM ${BASE_IMAGE}

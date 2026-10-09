@@ -7,7 +7,7 @@
 name: <app>-bdvt
 
 # Throwaway env every service shares. NEVER real secrets — inject dummy values
-# for anything the app needs to BOOT (see gotchas.md: missing secrets = the #1
+# for anything the app needs to BOOT (see onboarding.md §4: missing secrets = the #1
 # reason a sandbox never goes healthy).
 x-app-env: &app-env
   DATABASE_URL: postgresql://app:app@postgres:5432/app   # <-- match your driver/URL scheme

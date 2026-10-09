@@ -212,7 +212,7 @@ const html = `<style>
     <h1>${esc(overall.text)}</h1>
     <span class="count eyebrow">${passed} passed · ${failed} failed</span>
   </div>
-  <p class="metaline">${meta || "bedigital-visual-tests"}</p>
+  <p class="metaline">${meta || "esegui-test"}</p>
   <div class="cards">
     ${missions.map(card).join("\n")}
   </div>

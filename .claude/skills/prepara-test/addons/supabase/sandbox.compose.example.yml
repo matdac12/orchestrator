@@ -1,10 +1,10 @@
-# .bedigital-visual-tests/sandbox.compose.yml — LOCAL SUPABASE stack + app (v5 Phase 2).
+# .esegui-test/sandbox.compose.yml — LOCAL SUPABASE stack + app (v5 Phase 2).
 # Use this shape when the app authenticates against Supabase. It runs a trimmed
 # local Supabase stack (db + auth + rest + gateway) INSIDE the sandbox so
 # adversarial missions never touch a real project. Proven end-to-end against a
-# minimal @supabase/ssr Next.js sample (see reference/supabase.md).
+# minimal @supabase/ssr Next.js sample (see addons/supabase/README.md).
 #
-# Pairs with (all committed under .bedigital-visual-tests/):
+# Pairs with (all committed under .esegui-test/):
 #   supabase/roles.sql     — set auth+rest role passwords (from the official self-host)
 #   supabase/jwt.sql       — set JWT GUCs (from the official self-host)
 #   supabase/gateway.conf  — nginx: one origin routing /auth/v1 + /rest/v1
@@ -38,8 +38,8 @@ services:
     volumes:
       # Same mount points the official self-hosted compose uses. Ephemeral: pgdata is
       # NOT a host volume, so `reset` (rm -v) wipes auth.users + re-initdb's + reseeds.
-      - ./.bedigital-visual-tests/supabase/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
-      - ./.bedigital-visual-tests/supabase/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+      - ./.esegui-test/supabase/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./.esegui-test/supabase/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
       interval: 5s
@@ -92,19 +92,19 @@ services:
     depends_on:
       auth: { condition: service_healthy }
     volumes:
-      - ./.bedigital-visual-tests/supabase/gateway.conf:/etc/nginx/nginx.conf:ro
+      - ./.esegui-test/supabase/gateway.conf:/etc/nginx/nginx.conf:ro
     networks: [sandbox]
 
   frontend:                          # == APP_SERVICE — the app under test
     build:
       context: .
-      dockerfile: .bedigital-visual-tests/Dockerfile.sandbox
+      dockerfile: .esegui-test/Dockerfile.sandbox
       args:
         BASE_IMAGE: ${BASE_IMAGE:-bdvt-base:latest}
         # NEXT_PUBLIC_* are inlined at BUILD time (Next replaces process.env.NEXT_PUBLIC_*
         # with literals in server AND client bundles) — they MUST be present here, not just
         # at runtime. The gateway URL is internal + fixed, so baking it is correct and the
-        # browser never dials it (all auth is server-side). See reference/supabase.md.
+        # browser never dials it (all auth is server-side). See addons/supabase/README.md.
         NEXT_PUBLIC_SUPABASE_URL: http://gateway:8000
         NEXT_PUBLIC_SUPABASE_ANON_KEY: *anon_key
     environment:

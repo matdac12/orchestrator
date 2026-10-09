@@ -9,7 +9,7 @@ playbook. It was proven end-to-end against a minimal `@supabase/ssr` Next.js sam
 
 > **Verify against current docs, not memory (supabase skill rule #1).** Image tags,
 > GoTrue env, `@supabase/ssr` cookie shape, and the admin API all drift. The values
-> in `templates/` were checked against `github.com/supabase/supabase` `docker/` this
+> here were checked against `github.com/supabase/supabase` `docker/` this
 > release — re-check the changelog before trusting them on a new app.
 
 ## 1. Detect "uses Supabase"
@@ -22,9 +22,9 @@ the plain SHAPE-B compose.
 
 ## 2. Stand up the local stack
 
-Copy `templates/supabase.sandbox.compose.example.yml` → the app's
-`.bedigital-visual-tests/sandbox.compose.yml`, and the three bootstrap files from
-`templates/supabase/` → `.bedigital-visual-tests/supabase/`
+Copy `addons/supabase/sandbox.compose.example.yml` → the app's
+`.esegui-test/sandbox.compose.yml`, and the three bootstrap files from
+`addons/supabase/` (`roles.sql`, `jwt.sql`, `gateway.conf`) → `.esegui-test/supabase/`
 (`roles.sql`, `jwt.sql`, `gateway.conf`). Commit them. The stack is trimmed to the
 minimum for email/password auth + a REST API:
 
@@ -65,7 +65,7 @@ LOGIN_PATH=/login
 POST_LOGIN_PATH=/
 ```
 
-Copy `templates/seed-supabase-user.mjs` into the app repo (`scripts/`). It POSTs to
+Copy `addons/supabase/seed-supabase-user.mjs` into the app repo (`scripts/`). It POSTs to
 GoTrue's admin API — the HTTP equivalent of
 `auth.admin.createUser({email,password,email_confirm:true})`:
 
@@ -89,13 +89,13 @@ with the same confirmed user and no leftover state.
 Many apps carry only **incremental** migrations (they `ALTER`/patch an existing DB) — the real `CREATE TABLE`s live in the cloud project, not the repo. An empty local Postgres + those migrations then fails. Path that works for "schema + fake data":
 
 1. **Dump the schema from prod, once** (safe to commit — no rows, no secrets):
-   `supabase db dump --db-url "<conn>" --schema public -f .bedigital-visual-tests/schema.sql`.
+   `supabase db dump --db-url "<conn>" --schema public -f .esegui-test/schema.sql`.
    Get `<conn>` right: the direct `db.<ref>.supabase.co` host is often **IPv6-only** and unresolvable from the dump container — use the **session pooler** `postgresql://postgres.<ref>:<pw>@aws-<N>-<region>.pooler.supabase.com:5432/postgres`. The region/`aws-N` prefix must match the project (probe: a wrong one fails fast with `Tenant or user not found`). Needs the DB password (not the service-role JWT) — have the user run it, or pass it once for a local-only dump.
 2. **Author `seed.sql`** = copy the non-PII reference rows verbatim from prod (lookups, template cycles, staff — preserve the real UUIDs so FKs resolve; anonymize any employee names) + synthesize the PII/volume tables (patients, orders, phases) referencing the copied rows **by natural key** (`(SELECT id FROM forniture WHERE codice_esterno=…)`), so you never hardcode UUIDs. Build child rows with `INSERT … SELECT` from the copied templates. Wrap the load in `SET session_replication_role = replica; … SET session_replication_role = DEFAULT;` to defer FK/triggers during bulk insert. If the app has a global data cutoff/filter setting, force it off in the seed so the synthetic rows are visible.
 3. **Apply both via the `db` service's initdb mounts** — NOT a `MIGRATE_CMD` (the app image has no psql). Mount into `/docker-entrypoint-initdb.d/init-scripts/`, numbered to run **after** the image's baked scripts (`…3-post-setup`) that create `anon`/`authenticated`/`service_role`:
    ```
-   - ./.bedigital-visual-tests/schema.sql:/docker-entrypoint-initdb.d/init-scripts/50-schema.sql:ro
-   - ./.bedigital-visual-tests/seed.sql:/docker-entrypoint-initdb.d/init-scripts/55-seed.sql:ro
+   - ./.esegui-test/schema.sql:/docker-entrypoint-initdb.d/init-scripts/50-schema.sql:ro
+   - ./.esegui-test/seed.sql:/docker-entrypoint-initdb.d/init-scripts/55-seed.sql:ro
    ```
    The image's `migrate.sh` globs `init-scripts/*.sql` sorted, with `ON_ERROR_STOP=1` (a real SQL error aborts init and the container exits 1 — fail-loud). The base postgres entrypoint prints `ignoring …/init-scripts` — that's expected; `migrate.sh` is what runs them. `reset` recreates the ephemeral `db`, so schema+seed reapply every mission. A defensive `45-ensure-roles.sql` (`CREATE ROLE … IF NOT EXISTS` via a `DO` block) makes the schema's `GRANT`s robust across image variants. `SEED_STRATEGY` stays `synthetic` with `SEED_CMD` doing only the confirmed-user admin-API seed.
 

@@ -1,4 +1,4 @@
-# .bedigital-visual-tests/Dockerfile.base — the golden base image (self-contained path).
+# .esegui-test/Dockerfile.base — the golden base image (self-contained path).
 # Built ONCE per lockfile hash by `sandbox.sh onboard`. Bake every expensive,
 # rarely-changing thing here so per-run sandboxes only copy source + build.
 #
