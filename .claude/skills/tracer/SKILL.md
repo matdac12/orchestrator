@@ -49,6 +49,7 @@ Keep the work map up to date; it drives every spawn.
 - Status: the worker sets only In Progress. **You** set In Review (execute, implement or fix work committed and reported), blocked, and Done (only once merged and verified green). A design task stays In Progress through its execution. If a worker set another status, correct it. No "blocked" status? Comment and use a label that already exists.
 - **Every report is written to the tracker before you answer Mattia:** status, plus a short comment (what changed, branch and commit, test results, what was not verified, open decisions). Do not rely on the worker having done it.
 - Findings a worker did not fix become issues. Delete only when Mattia says so.
+- If the tracker has a knowledge layer (Traccia's **memories** and **documents**), use it: read the project's relevant memories and documents before you plan or brief a worker, and after a task lands record the durable facts or lessons a later worker should not have to re-learn — update an existing memory rather than adding a near-duplicate. The tools are in trackers.md.
 
 ## Workers
 

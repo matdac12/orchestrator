@@ -10,6 +10,7 @@ Tools: the `traccia` MCP. Run `whoami` first (expect actor `agent`). Default pro
 - Labels must exist (`list_issue_labels`). `labels` on `save_issue` replaces the whole set.
 - `description` replaces the whole text. For issues several threads edit, fetch the latest and pass `expectedUpdatedAt`.
 - Agents cannot purge; deleting is soft (`restore` undoes it).
+- Knowledge layer: **memories** (titled markdown notes with tags) and **documents** (files). Read the relevant ones before briefing a worker (`list_memories`/`get_memory`; `list_documents`/`get_document`), and record durable facts with `save_memory` and files with `create_document`. Agents may purge memories and documents, unlike other types.
 - Triage with Mattia: for each `needs-triage` issue give a recommendation (do, backlog with what would promote it, drop), apply his answer with a short decision comment, remove `needs-triage`.
 - Linear identifiers (`MAT-nnn`) from the old archive are findable by searching Traccia for that text. Look one up before telling anyone its TRC number; never assume a mapping.
 - Branch naming: `trc-NNN-slug`. Commit messages mention `TRC-NNN`.
