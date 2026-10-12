@@ -26,6 +26,16 @@ Co-Authored-By trailer matches the model: `Claude Sonnet 5.5 <noreply@anthropic.
 
 Gitignored files do not come with a worktree. If the project has a `.mcp.json`, copy `<repo root>/.claude/settings.local.json` into the worktree's `.claude/` (`mkdir -p` first; a failing `cp` is a stop-and-report), or write `{"enableAllProjectMcpServers": true}` if the source is missing; otherwise the worker stalls on "New MCP servers found". A worktree whose path casing differs from the repo's stalls on "Do you trust the files in this folder?". A stalled worker cannot report that: shortly after launch, `t3_thread_read` it and `t3_pending_request_list`; if stuck, tell Mattia (he accepts trust prompts). The worker's first act: `git rev-parse --path-format=absolute --git-common-dir` must print `<repo root>/.git`, else report blocked "wrong repo". If a worker says its tracker MCP is missing in the worktree, tell Mattia; it must not fall back to the other tracker.
 
+## Dependencies (first thread of a task)
+
+Installed dependencies are gitignored too, and a fresh install in every worktree repeats identical work. Project-agnostic rule: the worker reuses the main checkout's install instead of reinstalling from scratch, and does so only when it is provably the same.
+
+- **Same lockfile:** the worktree's committed lockfile (whatever the ecosystem uses) has no diff against the main checkout's (`git diff --quiet <defaultBranch> -- <lockfile>` and no uncommitted change to it in main), and main has the installed directory (`node_modules`, `vendor`, ...).
+- **Location-independent directory** (`node_modules`, `vendor`, `Pods`): copy it from main with a fast bulk copy (`robocopy /E /MT:16` on Windows, `cp -a` elsewhere; never a junction or symlink, a shared directory lets one worker corrupt main and the others). Then run the project's own offline or frozen verify (`npm ls`, `composer validate`, ...) and fall back to the normal install if it fails.
+- **Location-bound directory** (Python `.venv`, `target`, anything with absolute paths baked in): do not copy. Run the normal install, with the tool's cache and offline flags (`--prefer-offline`, `uv sync`, ...), so the download is already skipped.
+- Lockfile differs, main has no install, or the ecosystem is unfamiliar: the normal install, once, with its cache flags.
+- The worker states in its report which path it took. Later threads of the task reuse the worktree and install nothing unless the lockfile changed.
+
 ## Brief
 
 Small, clear task: this brief as the launch message. Big task: write a handoff document (handoff.md) containing it and send only the short pointer; the Rules and Report back blocks go in either way.
@@ -39,6 +49,7 @@ Owns: <files you may change>. Do NOT touch: <files owned by another worker, and 
 
 ## Rules
 - Read AGENTS.md / CLAUDE.md first. Issues live in <Linear|Traccia> (Traccia: call whoami first); do not write to the other tracker. Set <ISSUE-ID> In Progress when you start, with a short comment; the orchestrator sets every later status.
+- First thing, install dependencies as in "Dependencies" above (reuse main's install when the lockfile is identical; do not run a full fresh install by reflex).
 - Add or update tests; run the project's check command and any e2e the change touches; report real output, failures included.
 - Stay local: commit on your branch (message mentions <ISSUE-ID> and ends `Co-Authored-By: <model> <email>`), leave the worktree clean, do not push, open a PR, merge or publish. When the orchestrator tells you `<defaultBranch>` moved, rebase onto it after your current step, rerun checks and report; if the rebase conflicts, abort it and report. No tracker MCP or skill available? Say so in your report.
 - Say what Mattia should check by eye if you cannot see the running app.

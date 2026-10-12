@@ -17,7 +17,7 @@ A task = one issue = one branch = **one worktree**. Its threads (design, then ex
 - The first thread creates it: `workspaceStrategy {"type":"worktree","baseRef":"<defaultBranch>","branch":"<issue-id>-slug","startFromOrigin":false}`. Record the path and branch on the issue.
 - Later threads: `{"type":"existing_worktree","worktreePath":"<path>","branch":"<branch>"}` (path from `t3_worktree_list`, never guessed).
 - **One active thread per worktree.** Before the next, check the previous is idle and its work committed.
-- Seed and install dependencies once, in the first thread (workers.md).
+- Seed and install dependencies once, in the first thread, reusing main's install when the lockfile matches (workers.md).
 - Any thread that writes files gets a worktree. `{"type":"root"}` is only for threads that write nothing (Investigate, a review of another branch, Q&A).
 
 ## 3. Kinds
